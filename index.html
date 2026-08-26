@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Manifiesto de Envíos — Panorama S.A.S.</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
 <style>
   :root{
     --ink: #0f1b2b;
@@ -94,6 +95,9 @@
   .card.ok .n{ color:var(--teal); }
   .card.warn .n{ color:var(--amber); }
   .card.bad .n{ color:var(--red); }
+  .card{ cursor:pointer; transition:box-shadow .12s, border-color .12s; }
+  .card:hover{ box-shadow:0 2px 6px rgba(15,27,43,0.12); }
+  .card.active{ border-color:var(--ink); box-shadow:0 0 0 2px var(--ink) inset; }
 
   /* ---- Tabs ---- */
   .tabs{
@@ -154,6 +158,42 @@
   .empty-state{ text-align:center; padding:60px 20px; color:var(--steel-dim); }
   .empty-state b{ color:var(--ink); }
 
+  /* ---- View switch ---- */
+  .view-switch{ display:flex; gap:6px; margin-bottom:20px; }
+  .view-btn{
+    font-size:13px; font-weight:700; letter-spacing:0.2px; padding:9px 16px; border-radius:5px 5px 0 0;
+    border:1px solid var(--rule); border-bottom:none; background:var(--paper-raised); color:var(--steel-dim);
+    cursor:pointer;
+  }
+  .view-btn.active{ background:var(--ink); color:#fff; border-color:var(--ink); }
+
+  /* ---- Analytics ---- */
+  .kpi-grid{
+    display:grid; grid-template-columns:repeat(auto-fit, minmax(160px,1fr)); gap:10px; margin-bottom:22px;
+  }
+  .kpi{
+    background:var(--paper-raised); border:1px solid var(--rule); border-left:4px solid var(--amber);
+    border-radius:4px; padding:14px 16px;
+  }
+  .kpi .n{ font-family:var(--mono); font-size:22px; font-weight:700; }
+  .kpi .l{ font-size:11px; color:var(--steel-dim); text-transform:uppercase; letter-spacing:0.3px; margin-top:4px; }
+  .chart-grid{
+    display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:16px;
+  }
+  .chart-card{
+    background:var(--paper-raised); border:1px solid var(--rule); border-radius:5px; padding:16px;
+  }
+  .chart-card.full{ grid-column:1/-1; }
+  .chart-card h3{
+    margin:0 0 12px; font-size:12.5px; text-transform:uppercase; letter-spacing:0.4px; color:var(--steel);
+    border-bottom:1px solid var(--rule); padding-bottom:8px;
+  }
+  .chart-card .canvas-wrap{ position:relative; height:280px; }
+  .chart-card .canvas-wrap.tall{ height:340px; }
+  @media (max-width: 820px){
+    .chart-grid{ grid-template-columns:1fr; }
+  }
+
   footer{ text-align:center; font-family:var(--mono); font-size:10.5px; color:var(--steel-dim); padding:30px 0 10px; }
 
   @media (max-width: 640px){
@@ -189,36 +229,70 @@
 
     <div class="summary" id="summary"></div>
 
-    <div class="tabs" id="tabs"></div>
-
-    <div class="toolbar">
-      <input type="text" id="search" placeholder="Buscar por código, destinatario, ciudad, factura...">
-      <select id="destFilter"><option value="">Todos los destinos</option></select>
-      <span class="reset" id="resetBtn">Limpiar filtros</span>
+    <div class="view-switch">
+      <div class="view-btn active" id="btnViewManifiesto">Manifiesto</div>
+      <div class="view-btn" id="btnViewAnalytics">Análisis estadístico</div>
     </div>
 
-    <div class="table-scroll">
-      <table id="dataTable">
-        <thead>
-          <tr>
-            <th>Código</th>
-            <th>Ruta</th>
-            <th>Destinatario</th>
-            <th>Recogida</th>
-            <th>Entrega est.</th>
-            <th>Plazo</th>
-            <th>Eficiencia</th>
-            <th>Peso</th>
-            <th>Flete total</th>
-            <th>Novedad</th>
-          </tr>
-        </thead>
-        <tbody id="tableBody"></tbody>
-      </table>
+    <div id="viewManifiesto">
+      <div class="tabs" id="tabs"></div>
+
+      <div class="toolbar">
+        <input type="text" id="search" placeholder="Buscar por código, destinatario, ciudad, factura...">
+        <select id="destFilter"><option value="">Todos los destinos</option></select>
+        <span class="reset" id="resetBtn">Limpiar filtros</span>
+      </div>
+
+      <div class="table-scroll">
+        <table id="dataTable">
+          <thead>
+            <tr>
+              <th>Código</th>
+              <th>Ruta</th>
+              <th>Destinatario</th>
+              <th>Recogida</th>
+              <th>Entrega est.</th>
+              <th>Plazo</th>
+              <th>Eficiencia</th>
+              <th>Peso</th>
+              <th>Flete total</th>
+              <th>Novedad</th>
+            </tr>
+          </thead>
+          <tbody id="tableBody"></tbody>
+        </table>
+      </div>
+      <div id="emptyState" class="empty-state" style="display:none;">
+        No hay envíos que coincidan con este filtro.
+      </div>
     </div>
-    <div id="emptyState" class="empty-state" style="display:none;">
-      No hay envíos que coincidan con este filtro.
+
+    <div id="viewAnalytics" style="display:none;">
+      <div class="kpi-grid" id="kpiGrid"></div>
+      <div class="chart-grid">
+        <div class="chart-card">
+          <h3>Envíos por estado</h3>
+          <div class="canvas-wrap"><canvas id="chartEstados"></canvas></div>
+        </div>
+        <div class="chart-card">
+          <h3>Eficiencia de entrega</h3>
+          <div class="canvas-wrap"><canvas id="chartEficiencia"></canvas></div>
+        </div>
+        <div class="chart-card full">
+          <h3>Envíos por día de recogida</h3>
+          <div class="canvas-wrap"><canvas id="chartPorDia"></canvas></div>
+        </div>
+        <div class="chart-card">
+          <h3>Top 10 destinos</h3>
+          <div class="canvas-wrap tall"><canvas id="chartDestinos"></canvas></div>
+        </div>
+        <div class="chart-card">
+          <h3>Novedades más frecuentes</h3>
+          <div class="canvas-wrap tall"><canvas id="chartNovedades"></canvas></div>
+        </div>
+      </div>
     </div>
+
   </div>
 
 </div>
@@ -228,6 +302,8 @@
 <script>
 let RAW = [];
 let currentEstado = 'ALL';
+let currentCategory = 'ALL'; // ALL | ENTREGADAS | EN_PROCESO | INCIDENCIA
+let charts = {}; // referencias a instancias Chart.js para poder destruirlas al recargar
 
 const uploadZone = document.getElementById('uploadZone');
 const fileInput = document.getElementById('fileInput');
@@ -322,11 +398,23 @@ function buildApp(){
   }).length;
 
   document.getElementById('summary').innerHTML = `
-    <div class="card total"><div class="n">${total}</div><div class="l">Total envíos</div></div>
-    <div class="card ok"><div class="n">${entregadas}</div><div class="l">Entregadas</div></div>
-    <div class="card warn"><div class="n">${enRuta}</div><div class="l">En proceso</div></div>
-    <div class="card bad"><div class="n">${incidencias}</div><div class="l">Con incidencia</div></div>
+    <div class="card total" data-category="ALL"><div class="n">${total}</div><div class="l">Total envíos</div></div>
+    <div class="card ok" data-category="ENTREGADAS"><div class="n">${entregadas}</div><div class="l">Entregadas</div></div>
+    <div class="card warn" data-category="EN_PROCESO"><div class="n">${enRuta}</div><div class="l">En proceso</div></div>
+    <div class="card bad" data-category="INCIDENCIA"><div class="n">${incidencias}</div><div class="l">Con incidencia</div></div>
   `;
+  document.querySelectorAll('.card').forEach(el => {
+    el.addEventListener('click', () => {
+      currentEstado = 'ALL';
+      currentCategory = el.getAttribute('data-category');
+      renderTable();
+      // sync visual state
+      document.querySelectorAll('.card').forEach(c => c.classList.remove('active'));
+      if(currentCategory !== 'ALL') el.classList.add('active');
+      document.getElementById('tabs').querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+      if(currentCategory === 'ALL') document.getElementById('tabs').querySelector('[data-estado="ALL"]').classList.add('active');
+    });
+  });
 
   // --- estados / tabs ---
   const counts = {};
@@ -345,9 +433,11 @@ function buildApp(){
   tabsEl.querySelectorAll('.tab').forEach(el => {
     el.addEventListener('click', () => {
       currentEstado = el.getAttribute('data-estado');
+      currentCategory = 'ALL';
       renderTable();
       tabsEl.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
       el.classList.add('active');
+      document.querySelectorAll('.card').forEach(c => c.classList.remove('active'));
     });
   });
 
@@ -363,12 +453,138 @@ function buildApp(){
     document.getElementById('search').value = '';
     destSelect.value = '';
     currentEstado = 'ALL';
+    currentCategory = 'ALL';
     renderTable();
     tabsEl.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
     tabsEl.querySelector('[data-estado="ALL"]').classList.add('active');
+    document.querySelectorAll('.card').forEach(c => c.classList.remove('active'));
   });
 
   renderTable();
+  buildAnalytics();
+}
+
+function setupViewSwitch(){
+  const btnM = document.getElementById('btnViewManifiesto');
+  const btnA = document.getElementById('btnViewAnalytics');
+  btnM.addEventListener('click', () => {
+    document.getElementById('viewManifiesto').style.display = 'block';
+    document.getElementById('viewAnalytics').style.display = 'none';
+    btnM.classList.add('active'); btnA.classList.remove('active');
+  });
+  btnA.addEventListener('click', () => {
+    document.getElementById('viewManifiesto').style.display = 'none';
+    document.getElementById('viewAnalytics').style.display = 'block';
+    btnA.classList.add('active'); btnM.classList.remove('active');
+  });
+}
+setupViewSwitch();
+
+function buildAnalytics(){
+  // ---- KPIs ----
+  const total = RAW.length;
+  const pesos = RAW.map(r => Number(r['Peso'])).filter(v => !isNaN(v));
+  const fletes = RAW.map(r => Number(r['Flete Total'])).filter(v => !isNaN(v));
+  const pesoTotal = pesos.reduce((a,b)=>a+b, 0);
+  const fleteTotal = fletes.reduce((a,b)=>a+b, 0);
+  const aTiempo = RAW.filter(r => String(r['Eficiencia']||'').toLowerCase().includes('a tiempo')).length;
+  const conEficiencia = RAW.filter(r => r['Eficiencia']).length;
+  const pctATiempo = conEficiencia ? ((aTiempo/conEficiencia)*100).toFixed(1) : '0';
+  const diasArr = RAW.map(r => Number(r['Dias transcurridos'])).filter(v => !isNaN(v));
+  const promedioDias = diasArr.length ? (diasArr.reduce((a,b)=>a+b,0)/diasArr.length).toFixed(1) : '—';
+  const conNovedad = RAW.filter(r => r['Novedad']).length;
+
+  document.getElementById('kpiGrid').innerHTML = `
+    <div class="kpi"><div class="n">${total}</div><div class="l">Envíos totales</div></div>
+    <div class="kpi"><div class="n">${pctATiempo}%</div><div class="l">Entregas a tiempo</div></div>
+    <div class="kpi"><div class="n">${promedioDias}</div><div class="l">Días transcurridos (prom.)</div></div>
+    <div class="kpi"><div class="n">$${Math.round(fleteTotal).toLocaleString('es-CO')}</div><div class="l">Flete total facturado</div></div>
+    <div class="kpi"><div class="n">${pesoTotal.toLocaleString('es-CO')} kg</div><div class="l">Peso total movilizado</div></div>
+    <div class="kpi"><div class="n">${conNovedad}</div><div class="l">Envíos con novedad</div></div>
+  `;
+
+  const palette = ['#0f7a6b','#c7791a','#3c5a75','#a3312b','#7f93a4','#0f1b2b','#8fb8ad','#e0ab5f'];
+
+  // helper para destruir chart previo
+  function makeChart(id, config){
+    if(charts[id]) charts[id].destroy();
+    const ctx = document.getElementById(id).getContext('2d');
+    charts[id] = new Chart(ctx, config);
+  }
+
+  // ---- Estados (doughnut) ----
+  const estCounts = {};
+  RAW.forEach(r => { const e = (r['Estado']||'Sin estado').trim(); estCounts[e] = (estCounts[e]||0)+1; });
+  const estLabels = Object.keys(estCounts).sort((a,b)=>estCounts[b]-estCounts[a]);
+  makeChart('chartEstados', {
+    type:'doughnut',
+    data:{ labels: estLabels, datasets:[{ data: estLabels.map(l=>estCounts[l]), backgroundColor: palette, borderWidth:1, borderColor:'#fff' }] },
+    options:{ plugins:{ legend:{ position:'right', labels:{ boxWidth:12, font:{size:10.5} } } }, maintainAspectRatio:false }
+  });
+
+  // ---- Eficiencia (bar) ----
+  const efCounts = {};
+  RAW.forEach(r => { const e = (r['Eficiencia']||'Sin dato').trim(); efCounts[e] = (efCounts[e]||0)+1; });
+  const efLabels = Object.keys(efCounts).sort((a,b)=>efCounts[b]-efCounts[a]);
+  makeChart('chartEficiencia', {
+    type:'bar',
+    data:{ labels: efLabels, datasets:[{ data: efLabels.map(l=>efCounts[l]), backgroundColor:'#3c5a75', borderRadius:3 }] },
+    options:{ plugins:{ legend:{display:false} }, maintainAspectRatio:false,
+      scales:{ x:{ ticks:{ font:{size:10}, autoSkip:false, maxRotation:20 } }, y:{ beginAtZero:true, ticks:{precision:0} } } }
+  });
+
+  // ---- Envios por dia (line) ----
+  const dayCounts = {};
+  RAW.forEach(r => {
+    const v = r['Fecha recogida'];
+    let d = null;
+    if(v instanceof Date) d = v;
+    else if(v){ const parts = String(v).split('/'); if(parts.length===3) d = new Date(parts[2],parts[1]-1,parts[0]); }
+    if(d && !isNaN(d)){
+      const key = d.toLocaleDateString('es-CO', {day:'2-digit', month:'2-digit'});
+      dayCounts[key] = (dayCounts[key]||0) + 1;
+    }
+  });
+  const dayKeys = Object.keys(dayCounts).sort((a,b)=>{
+    const [da,ma] = a.split('/').map(Number), [db,mb] = b.split('/').map(Number);
+    return ma-mb || da-db;
+  });
+  makeChart('chartPorDia', {
+    type:'line',
+    data:{ labels: dayKeys, datasets:[{ data: dayKeys.map(k=>dayCounts[k]), borderColor:'#c7791a', backgroundColor:'rgba(199,121,26,0.15)', fill:true, tension:0.25, pointRadius:2 }] },
+    options:{ plugins:{ legend:{display:false} }, maintainAspectRatio:false,
+      scales:{ y:{ beginAtZero:true, ticks:{precision:0} } } }
+  });
+
+  // ---- Top 10 destinos (horizontal bar) ----
+  const destCounts = {};
+  RAW.forEach(r => { const d = r['Destino']; if(d) destCounts[d] = (destCounts[d]||0)+1; });
+  const topDest = Object.keys(destCounts).sort((a,b)=>destCounts[b]-destCounts[a]).slice(0,10);
+  makeChart('chartDestinos', {
+    type:'bar',
+    data:{ labels: topDest, datasets:[{ data: topDest.map(l=>destCounts[l]), backgroundColor:'#0f7a6b', borderRadius:3 }] },
+    options:{ indexAxis:'y', plugins:{ legend:{display:false} }, maintainAspectRatio:false,
+      scales:{ x:{ beginAtZero:true, ticks:{precision:0} } } }
+  });
+
+  // ---- Novedades mas frecuentes (horizontal bar) ----
+  const novCounts = {};
+  RAW.forEach(r => {
+    const n = r['Novedad'];
+    if(n){
+      const key = String(n).trim();
+      novCounts[key] = (novCounts[key]||0)+1;
+    }
+  });
+  const topNov = Object.keys(novCounts).sort((a,b)=>novCounts[b]-novCounts[a]).slice(0,8)
+    .map(n => n.length > 45 ? n.slice(0,42)+'...' : n);
+  const topNovFull = Object.keys(novCounts).sort((a,b)=>novCounts[b]-novCounts[a]).slice(0,8);
+  makeChart('chartNovedades', {
+    type:'bar',
+    data:{ labels: topNov, datasets:[{ data: topNovFull.map(l=>novCounts[l]), backgroundColor:'#a3312b', borderRadius:3 }] },
+    options:{ indexAxis:'y', plugins:{ legend:{display:false} }, maintainAspectRatio:false,
+      scales:{ x:{ beginAtZero:true, ticks:{precision:0} } } }
+  });
 }
 
 function escapeHtml(s){
@@ -382,6 +598,12 @@ function renderTable(){
 
   let rows = RAW.filter(r => {
     if(currentEstado !== 'ALL' && String(r['Estado']||'Sin estado').trim() !== currentEstado) return false;
+    if(currentCategory !== 'ALL'){
+      const s = String(r['Estado']||'').toLowerCase();
+      if(currentCategory === 'ENTREGADAS' && !s.includes('entregada')) return false;
+      if(currentCategory === 'EN_PROCESO' && !(s.includes('transporte') || s.includes('terminal') || s.includes('distribuci') || s.includes('recogida'))) return false;
+      if(currentCategory === 'INCIDENCIA' && !s.includes('incidencia')) return false;
+    }
     if(dest && r['Destino'] !== dest) return false;
     if(search){
       const hay = [
