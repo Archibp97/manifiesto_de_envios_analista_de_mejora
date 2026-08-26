@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Manifiesto de Envíos — Panorama S.A.S.</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root{
+    --ink: #0f1b2b;
+    --paper: #eef1f4;
+    --paper-raised: #ffffff;
+    --rule: #ccd3db;
+    --steel: #3c5a75;
+    --steel-dim: #7f93a4;
+    --amber: #c7791a;
+    --amber-soft: #fbe9d3;
+    --teal: #0f7a6b;
+    --teal-soft: #d9efea;
+    --red: #a3312b;
+    --red-soft: #f6dedd;
+    --mono: 'JetBrains Mono', 'SF Mono', Consolas, monospace;
+  }
+  @font-face{
+    font-family:'Fraunces';
+    src: local('Georgia');
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--paper);
+    color:var(--ink);
+    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    min-height:100vh;
+  }
+
+  /* ---- Masthead ---- */
+  .masthead{
+    background:var(--ink);
+    color:var(--paper);
+    padding:22px 28px 18px;
+    border-bottom:4px solid var(--amber);
+  }
+  .masthead-row{
+    display:flex; justify-content:space-between; align-items:flex-end; flex-wrap:wrap; gap:14px;
+    max-width:1180px; margin:0 auto;
+  }
+  .masthead h1{
+    margin:0; font-size:26px; letter-spacing:0.2px; font-weight:800;
+  }
+  .masthead .sub{
+    color:#aebdcc; font-size:12.5px; margin-top:4px; letter-spacing:0.3px; font-family:var(--mono);
+  }
+  .masthead .tag{
+    font-family:var(--mono); font-size:11px; color:var(--paper); background:rgba(255,255,255,0.08);
+    border:1px solid rgba(255,255,255,0.2); padding:5px 10px; border-radius:3px;
+  }
+
+  .wrap{max-width:1180px; margin:0 auto; padding:22px 28px 60px;}
+
+  /* ---- Upload zone ---- */
+  .upload-zone{
+    background:var(--paper-raised);
+    border:2px dashed var(--rule);
+    border-radius:6px;
+    padding:38px 24px;
+    text-align:center;
+    transition: border-color .15s, background .15s;
+    cursor:pointer;
+  }
+  .upload-zone.drag{ border-color:var(--steel); background:#f4f7fa; }
+  .upload-zone h2{ margin:0 0 6px; font-size:17px; }
+  .upload-zone p{ margin:0; color:var(--steel-dim); font-size:13.5px; }
+  .upload-zone input{ display:none; }
+  .upload-btn{
+    display:inline-block; margin-top:16px; background:var(--ink); color:#fff;
+    padding:9px 18px; border-radius:3px; font-size:13px; font-weight:600; letter-spacing:0.3px;
+  }
+  .upload-hint{ font-family:var(--mono); font-size:11px; color:var(--steel-dim); margin-top:12px; }
+  .upload-error{ color:var(--red); font-size:13px; margin-top:12px; font-weight:600; display:none; }
+
+  /* ---- Summary cards ---- */
+  .summary{
+    display:grid; grid-template-columns:repeat(auto-fit, minmax(150px,1fr));
+    gap:10px; margin:22px 0 20px;
+  }
+  .card{
+    background:var(--paper-raised); border:1px solid var(--rule); border-radius:5px;
+    padding:14px 16px;
+  }
+  .card .n{ font-family:var(--mono); font-size:26px; font-weight:700; line-height:1; }
+  .card .l{ font-size:11.5px; color:var(--steel-dim); margin-top:6px; letter-spacing:0.2px; text-transform:uppercase; }
+  .card.total .n{ color:var(--ink); }
+  .card.ok .n{ color:var(--teal); }
+  .card.warn .n{ color:var(--amber); }
+  .card.bad .n{ color:var(--red); }
+
+  /* ---- Tabs ---- */
+  .tabs{
+    display:flex; flex-wrap:wrap; gap:6px; margin-bottom:16px;
+    border-bottom:1px solid var(--rule); padding-bottom:14px;
+  }
+  .tab{
+    font-family:var(--mono); font-size:12px; padding:7px 12px; border-radius:14px;
+    border:1px solid var(--rule); background:var(--paper-raised); color:var(--steel);
+    cursor:pointer; white-space:nowrap; display:flex; align-items:center; gap:6px;
+  }
+  .tab .count{
+    background:var(--rule); color:var(--ink); border-radius:10px; padding:1px 6px; font-size:10.5px;
+  }
+  .tab.active{ background:var(--ink); color:#fff; border-color:var(--ink); }
+  .tab.active .count{ background:var(--amber); color:#1a1204; }
+
+  /* ---- Toolbar ---- */
+  .toolbar{ display:flex; gap:10px; margin-bottom:14px; flex-wrap:wrap; align-items:center; }
+  .toolbar input[type=text]{
+    flex:1; min-width:220px; padding:9px 12px; border:1px solid var(--rule); border-radius:4px;
+    font-size:13px; background:var(--paper-raised);
+  }
+  .toolbar select{
+    padding:9px 10px; border:1px solid var(--rule); border-radius:4px; background:var(--paper-raised); font-size:13px;
+  }
+  .toolbar .reset{
+    font-size:12px; color:var(--steel); text-decoration:underline; cursor:pointer; white-space:nowrap;
+  }
+
+  /* ---- Table ---- */
+  .table-scroll{ overflow-x:auto; border:1px solid var(--rule); border-radius:5px; background:var(--paper-raised); }
+  table{ border-collapse:collapse; width:100%; font-size:12.5px; min-width:960px; }
+  thead th{
+    position:sticky; top:0; background:var(--ink); color:#cfd9e2; text-align:left;
+    padding:9px 10px; font-weight:600; font-size:10.5px; text-transform:uppercase; letter-spacing:0.4px;
+    border-bottom:2px solid var(--amber); white-space:nowrap;
+  }
+  tbody td{
+    padding:9px 10px; border-bottom:1px solid var(--rule); vertical-align:top;
+  }
+  tbody tr:hover{ background:#f6f8fa; }
+  .code{ font-family:var(--mono); font-weight:700; }
+  .route{ display:flex; flex-direction:column; gap:2px; }
+  .route .o{ color:var(--steel-dim); font-size:11px; }
+  .route .d{ font-weight:600; }
+  .pill{
+    display:inline-block; padding:2px 8px; border-radius:10px; font-size:10.5px; font-weight:700;
+    letter-spacing:0.2px; white-space:nowrap;
+  }
+  .pill.ok{ background:var(--teal-soft); color:var(--teal); }
+  .pill.warn{ background:var(--amber-soft); color:var(--amber); }
+  .pill.bad{ background:var(--red-soft); color:var(--red); }
+  .pill.neutral{ background:var(--rule); color:var(--steel); }
+  .money{ font-family:var(--mono); text-align:right; display:block; }
+  .novedad{ font-size:11.5px; color:var(--red); max-width:220px; }
+  .muted{ color:var(--steel-dim); }
+  .empty-state{ text-align:center; padding:60px 20px; color:var(--steel-dim); }
+  .empty-state b{ color:var(--ink); }
+
+  footer{ text-align:center; font-family:var(--mono); font-size:10.5px; color:var(--steel-dim); padding:30px 0 10px; }
+
+  @media (max-width: 640px){
+    .masthead h1{ font-size:20px; }
+    table{ min-width:760px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="masthead">
+  <div class="masthead-row">
+    <div>
+      <h1>Manifiesto de Envíos</h1>
+      <div class="sub">PANORAMA S.A.S · CONTROL DE REMISIONES POR ESTADO</div>
+    </div>
+    <div class="tag" id="fileTag">SIN ARCHIVO CARGADO</div>
+  </div>
+</div>
+
+<div class="wrap">
+
+  <div class="upload-zone" id="uploadZone">
+    <h2>Arrastra tu archivo Excel aquí</h2>
+    <p>O haz clic para seleccionar el informe de negocio (.xlsx)</p>
+    <span class="upload-btn">Seleccionar archivo</span>
+    <div class="upload-hint">Se procesa localmente en tu navegador — no se envía a ningún servidor</div>
+    <div class="upload-error" id="uploadError"></div>
+    <input type="file" id="fileInput" accept=".xlsx,.xls">
+  </div>
+
+  <div id="app" style="display:none;">
+
+    <div class="summary" id="summary"></div>
+
+    <div class="tabs" id="tabs"></div>
+
+    <div class="toolbar">
+      <input type="text" id="search" placeholder="Buscar por código, destinatario, ciudad, factura...">
+      <select id="destFilter"><option value="">Todos los destinos</option></select>
+      <span class="reset" id="resetBtn">Limpiar filtros</span>
+    </div>
+
+    <div class="table-scroll">
+      <table id="dataTable">
+        <thead>
+          <tr>
+            <th>Código</th>
+            <th>Ruta</th>
+            <th>Destinatario</th>
+            <th>Recogida</th>
+            <th>Entrega est.</th>
+            <th>Plazo</th>
+            <th>Eficiencia</th>
+            <th>Peso</th>
+            <th>Flete total</th>
+            <th>Novedad</th>
+          </tr>
+        </thead>
+        <tbody id="tableBody"></tbody>
+      </table>
+    </div>
+    <div id="emptyState" class="empty-state" style="display:none;">
+      No hay envíos que coincidan con este filtro.
+    </div>
+  </div>
+
+</div>
+
+<footer>MANIFIESTO GENERADO EN EL NAVEGADOR · DATOS NO ALMACENADOS</footer>
+
+<script>
+let RAW = [];
+let currentEstado = 'ALL';
+
+const uploadZone = document.getElementById('uploadZone');
+const fileInput = document.getElementById('fileInput');
+const uploadError = document.getElementById('uploadError');
+const fileTag = document.getElementById('fileTag');
+const app = document.getElementById('app');
+
+uploadZone.addEventListener('click', () => fileInput.click());
+uploadZone.addEventListener('dragover', e => { e.preventDefault(); uploadZone.classList.add('drag'); });
+uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('drag'));
+uploadZone.addEventListener('drop', e => {
+  e.preventDefault();
+  uploadZone.classList.remove('drag');
+  if(e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener('change', e => {
+  if(e.target.files.length) handleFile(e.target.files[0]);
+});
+
+function handleFile(file){
+  uploadError.style.display = 'none';
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try{
+      const data = new Uint8Array(e.target.result);
+      const wb = XLSX.read(data, {type:'array', cellDates:true});
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const json = XLSX.utils.sheet_to_json(sheet, {defval:null, raw:true});
+      if(!json.length) throw new Error('El archivo no contiene filas de datos.');
+      RAW = json;
+      fileTag.textContent = file.name.length > 40 ? file.name.slice(0,37)+'...' : file.name;
+      currentEstado = 'ALL';
+      buildApp();
+    }catch(err){
+      uploadError.textContent = 'No se pudo leer el archivo: ' + err.message;
+      uploadError.style.display = 'block';
+    }
+  };
+  reader.onerror = () => {
+    uploadError.textContent = 'Error al leer el archivo. Intenta de nuevo.';
+    uploadError.style.display = 'block';
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function fmtDate(v){
+  if(!v) return '<span class="muted">—</span>';
+  let d;
+  if(v instanceof Date) d = v;
+  else if(typeof v === 'string'){
+    const parts = v.split('/');
+    if(parts.length===3) d = new Date(parts[2], parts[1]-1, parts[0]);
+    else d = new Date(v);
+  } else return '<span class="muted">'+v+'</span>';
+  if(isNaN(d)) return '<span class="muted">'+v+'</span>';
+  return d.toLocaleDateString('es-CO', {day:'2-digit', month:'short', year:'numeric'});
+}
+
+function fmtMoney(v){
+  if(v===null || v===undefined || v==='' || isNaN(v)) return '<span class="muted">—</span>';
+  return '$' + Math.round(Number(v)).toLocaleString('es-CO');
+}
+
+function efficiencyPill(v){
+  if(!v) return '<span class="pill neutral">Sin dato</span>';
+  const s = String(v).toLowerCase();
+  if(s.includes('a tiempo')) return '<span class="pill ok">'+v+'</span>';
+  if(s.includes('proceso')) return '<span class="pill neutral">'+v+'</span>';
+  if(s.includes('no justificado')) return '<span class="pill bad">'+v+'</span>';
+  if(s.includes('oportunidad')) return '<span class="pill warn">'+v+'</span>';
+  return '<span class="pill neutral">'+v+'</span>';
+}
+
+function estadoPillClass(estado){
+  const s = String(estado||'').toLowerCase();
+  if(s.includes('entregada')) return 'ok';
+  if(s.includes('incidencia')) return 'bad';
+  if(s.includes('parcial')) return 'warn';
+  return 'neutral';
+}
+
+function buildApp(){
+  app.style.display = 'block';
+
+  // --- summary cards ---
+  const total = RAW.length;
+  const entregadas = RAW.filter(r => String(r['Estado']||'').toLowerCase().includes('entregada')).length;
+  const incidencias = RAW.filter(r => String(r['Estado']||'').toLowerCase().includes('incidencia')).length;
+  const enRuta = RAW.filter(r => {
+    const s = String(r['Estado']||'').toLowerCase();
+    return s.includes('transporte') || s.includes('terminal') || s.includes('distribuci') || s.includes('recogida');
+  }).length;
+
+  document.getElementById('summary').innerHTML = `
+    <div class="card total"><div class="n">${total}</div><div class="l">Total envíos</div></div>
+    <div class="card ok"><div class="n">${entregadas}</div><div class="l">Entregadas</div></div>
+    <div class="card warn"><div class="n">${enRuta}</div><div class="l">En proceso</div></div>
+    <div class="card bad"><div class="n">${incidencias}</div><div class="l">Con incidencia</div></div>
+  `;
+
+  // --- estados / tabs ---
+  const counts = {};
+  RAW.forEach(r => {
+    const e = (r['Estado'] || 'Sin estado').toString().trim();
+    counts[e] = (counts[e]||0) + 1;
+  });
+  const estados = Object.keys(counts).sort((a,b) => counts[b]-counts[a]);
+
+  const tabsEl = document.getElementById('tabs');
+  let tabsHtml = `<div class="tab ${currentEstado==='ALL'?'active':''}" data-estado="ALL">Todos <span class="count">${total}</span></div>`;
+  estados.forEach(e => {
+    tabsHtml += `<div class="tab ${currentEstado===e?'active':''}" data-estado="${escapeAttr(e)}">${escapeHtml(e)} <span class="count">${counts[e]}</span></div>`;
+  });
+  tabsEl.innerHTML = tabsHtml;
+  tabsEl.querySelectorAll('.tab').forEach(el => {
+    el.addEventListener('click', () => {
+      currentEstado = el.getAttribute('data-estado');
+      renderTable();
+      tabsEl.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+      el.classList.add('active');
+    });
+  });
+
+  // --- destination filter ---
+  const destSelect = document.getElementById('destFilter');
+  const dests = [...new Set(RAW.map(r => r['Destino']).filter(Boolean))].sort();
+  destSelect.innerHTML = '<option value="">Todos los destinos</option>' +
+    dests.map(d => `<option value="${escapeAttr(d)}">${escapeHtml(d)}</option>`).join('');
+
+  document.getElementById('search').addEventListener('input', renderTable);
+  destSelect.addEventListener('change', renderTable);
+  document.getElementById('resetBtn').addEventListener('click', () => {
+    document.getElementById('search').value = '';
+    destSelect.value = '';
+    currentEstado = 'ALL';
+    renderTable();
+    tabsEl.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+    tabsEl.querySelector('[data-estado="ALL"]').classList.add('active');
+  });
+
+  renderTable();
+}
+
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function escapeAttr(s){ return escapeHtml(s); }
+
+function renderTable(){
+  const search = document.getElementById('search').value.toLowerCase().trim();
+  const dest = document.getElementById('destFilter').value;
+
+  let rows = RAW.filter(r => {
+    if(currentEstado !== 'ALL' && String(r['Estado']||'Sin estado').trim() !== currentEstado) return false;
+    if(dest && r['Destino'] !== dest) return false;
+    if(search){
+      const hay = [
+        r['Codigo remision'], r['Nombre destinatario'], r['Destino'], r['Ciudad origen'],
+        r['Factura'], r['Documento'], r['Cliente']
+      ].map(v => String(v||'').toLowerCase()).join(' ');
+      if(!hay.includes(search)) return false;
+    }
+    return true;
+  });
+
+  const tbody = document.getElementById('tableBody');
+  const emptyState = document.getElementById('emptyState');
+
+  if(!rows.length){
+    tbody.innerHTML = '';
+    emptyState.style.display = 'block';
+    document.getElementById('dataTable').style.display = 'none';
+    return;
+  }
+  emptyState.style.display = 'none';
+  document.getElementById('dataTable').style.display = 'table';
+
+  tbody.innerHTML = rows.map(r => {
+    const dias = r['Dias transcurridos'];
+    const ofrecidos = r['Dias ofrecidos'];
+    let plazoHtml = '<span class="muted">—</span>';
+    if(dias!==null && dias!==undefined && ofrecidos!==null && ofrecidos!==undefined){
+      const over = Number(dias) > Number(ofrecidos);
+      plazoHtml = `<span class="pill ${over?'bad':'ok'}">${dias} / ${ofrecidos} d</span>`;
+    }
+    const peso = r['Peso'] ? r['Peso']+' kg' : '<span class="muted">—</span>';
+    const novedad = r['Novedad'] ? `<div class="novedad">${escapeHtml(r['Novedad'])}</div>` : '<span class="muted">—</span>';
+
+    return `<tr>
+      <td class="code">${escapeHtml(r['Codigo remision']||'—')}</td>
+      <td><div class="route"><span class="o">${escapeHtml(r['Ciudad origen']||'—')}</span><span class="d">→ ${escapeHtml(r['Destino']||'—')}</span></div></td>
+      <td>${escapeHtml(r['Nombre destinatario']||'—')}</td>
+      <td>${fmtDate(r['Fecha recogida'])}</td>
+      <td>${fmtDate(r['Fecha entrega'])}</td>
+      <td>${plazoHtml}</td>
+      <td>${efficiencyPill(r['Eficiencia'])}</td>
+      <td>${peso}</td>
+      <td><span class="money">${fmtMoney(r['Flete Total'])}</span></td>
+      <td>${novedad}</td>
+    </tr>`;
+  }).join('');
+}
+</script>
+
+</body>
+</html>
