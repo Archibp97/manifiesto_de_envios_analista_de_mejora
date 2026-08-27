@@ -1,9 +1,6 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-<!DOCTYPE html>
-<html lang="es">
-<head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Manifiesto de Envíos — Panorama S.A.S.</title>
@@ -259,6 +256,9 @@
       <div class="toolbar">
         <input type="text" id="search" placeholder="Buscar por código, destinatario, ciudad, factura...">
         <select id="destFilter"><option value="">Todos los destinos</option></select>
+        <label class="novedad-toggle" id="sinFechaWrap">
+          <input type="checkbox" id="sinFechaToggle"> Solo sin fecha de entrega (-)
+        </label>
         <label class="novedad-toggle" id="novedadToggleWrap">
           <input type="checkbox" id="novedadToggle"> Solo con incidencia / novedad
         </label>
@@ -485,6 +485,13 @@ function buildApp(){
   document.getElementById('search').addEventListener('input', renderTable);
   destSelect.addEventListener('change', renderTable);
 
+  const sinFechaWrap = document.getElementById('sinFechaWrap');
+  const sinFechaToggle = document.getElementById('sinFechaToggle');
+  sinFechaToggle.addEventListener('change', (e) => {
+    sinFechaWrap.classList.toggle('active', e.target.checked);
+    renderTable();
+  });
+
   const novWrap = document.getElementById('novedadToggleWrap');
   document.getElementById('novedadToggle').addEventListener('change', (e) => {
     onlyNovedad = e.target.checked;
@@ -495,6 +502,8 @@ function buildApp(){
   document.getElementById('resetBtn').addEventListener('click', () => {
     document.getElementById('search').value = '';
     destSelect.value = '';
+    sinFechaToggle.checked = false;
+    sinFechaWrap.classList.remove('active');
     document.getElementById('novedadToggle').checked = false;
     novWrap.classList.remove('active');
     currentEstado = 'ALL';
@@ -673,12 +682,18 @@ function escapeAttr(s){ return escapeHtml(s); }
 function renderTable(){
   const search = document.getElementById('search').value.toLowerCase().trim();
   const dest = document.getElementById('destFilter').value;
+  const sinFecha = document.getElementById('sinFechaToggle').checked;
 
   let rows = RAW.filter(r => {
     if(!matchesCategory(r, currentCategory)) return false;
     if(currentEstado !== 'ALL' && String(r['Estado']||'Sin estado').trim() !== currentEstado) return false;
     if(onlyNovedad && !r['Novedad']) return false;
     if(dest && r['Destino'] !== dest) return false;
+    if(sinFecha){
+      const v = r['Fecha entrega'];
+      const esVacio = !v || String(v).trim() === '-';
+      if(!esVacio) return false;
+    }
     if(search){
       const hay = [
         r['Codigo remision'], r['Nombre destinatario'], r['Destino'], r['Ciudad origen'],
