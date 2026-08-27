@@ -1,6 +1,9 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
+<!DOCTYPE html>
+<html lang="es">
+<head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Manifiesto de Envíos — Panorama S.A.S.</title>
@@ -127,6 +130,20 @@
   .toolbar .reset{
     font-size:12px; color:var(--steel); text-decoration:underline; cursor:pointer; white-space:nowrap;
   }
+  .toolbar .novedad-toggle{
+    display:flex; align-items:center; gap:6px; font-size:12.5px; color:var(--steel);
+    background:var(--paper-raised); border:1px solid var(--rule); padding:8px 12px; border-radius:4px;
+    cursor:pointer; white-space:nowrap; user-select:none;
+  }
+  .toolbar .novedad-toggle input{ cursor:pointer; }
+  .toolbar .novedad-toggle.active{ border-color:var(--red); color:var(--red); background:var(--red-soft); }
+
+  .shortcuts{ display:flex; flex-wrap:wrap; gap:8px; margin-bottom:16px; }
+  .shortcut-chip{
+    font-size:11.5px; font-family:var(--mono); padding:6px 11px; border-radius:14px;
+    background:var(--paper-raised); border:1px solid var(--red); color:var(--red); cursor:pointer;
+  }
+  .shortcut-chip:hover{ background:var(--red-soft); }
 
   /* ---- Table ---- */
   .table-scroll{ overflow-x:auto; border:1px solid var(--rule); border-radius:5px; background:var(--paper-raised); }
@@ -235,11 +252,16 @@
     </div>
 
     <div id="viewManifiesto">
+      <div class="shortcuts" id="shortcuts"></div>
+
       <div class="tabs" id="tabs"></div>
 
       <div class="toolbar">
         <input type="text" id="search" placeholder="Buscar por código, destinatario, ciudad, factura...">
         <select id="destFilter"><option value="">Todos los destinos</option></select>
+        <label class="novedad-toggle" id="novedadToggleWrap">
+          <input type="checkbox" id="novedadToggle"> Solo con incidencia / novedad
+        </label>
         <span class="reset" id="resetBtn">Limpiar filtros</span>
       </div>
 
@@ -251,7 +273,7 @@
               <th>Ruta</th>
               <th>Destinatario</th>
               <th>Recogida</th>
-              <th>Entrega est.</th>
+              <th>Fecha entrega</th>
               <th>Plazo</th>
               <th>Eficiencia</th>
               <th>Peso</th>
@@ -303,7 +325,17 @@
 let RAW = [];
 let currentEstado = 'ALL';
 let currentCategory = 'ALL'; // ALL | ENTREGADAS | EN_PROCESO | INCIDENCIA
+let onlyNovedad = false;
 let charts = {}; // referencias a instancias Chart.js para poder destruirlas al recargar
+
+function matchesCategory(r, category){
+  if(category === 'ALL') return true;
+  const s = String(r['Estado']||'').toLowerCase();
+  if(category === 'ENTREGADAS') return s.includes('entregada');
+  if(category === 'EN_PROCESO') return (s.includes('transporte') || s.includes('terminal') || s.includes('distribuci') || s.includes('recogida'));
+  if(category === 'INCIDENCIA') return s.includes('cerrado por incidencia');
+  return true;
+}
 
 const uploadZone = document.getElementById('uploadZone');
 const fileInput = document.getElementById('fileInput');
@@ -336,6 +368,8 @@ function handleFile(file){
       RAW = json;
       fileTag.textContent = file.name.length > 40 ? file.name.slice(0,37)+'...' : file.name;
       currentEstado = 'ALL';
+      currentCategory = 'ALL';
+      onlyNovedad = false;
       buildApp();
     }catch(err){
       uploadError.textContent = 'No se pudo leer el archivo: ' + err.message;
@@ -397,49 +431,50 @@ function buildApp(){
     return s.includes('transporte') || s.includes('terminal') || s.includes('distribuci') || s.includes('recogida');
   }).length;
 
+  const conNovedadTotal = RAW.filter(r => r['Novedad']).length;
+
   document.getElementById('summary').innerHTML = `
     <div class="card total" data-category="ALL"><div class="n">${total}</div><div class="l">Total envíos</div></div>
     <div class="card ok" data-category="ENTREGADAS"><div class="n">${entregadas}</div><div class="l">Entregadas</div></div>
     <div class="card warn" data-category="EN_PROCESO"><div class="n">${enRuta}</div><div class="l">En proceso</div></div>
-    <div class="card bad" data-category="INCIDENCIA"><div class="n">${incidencias}</div><div class="l">Con incidencia</div></div>
+    <div class="card bad" data-category="INCIDENCIA"><div class="n">${incidencias}</div><div class="l">Cerrado por incidencia</div></div>
   `;
   document.querySelectorAll('.card').forEach(el => {
     el.addEventListener('click', () => {
       currentEstado = 'ALL';
       currentCategory = el.getAttribute('data-category');
+      buildTabs();
       renderTable();
       // sync visual state
       document.querySelectorAll('.card').forEach(c => c.classList.remove('active'));
       if(currentCategory !== 'ALL') el.classList.add('active');
-      document.getElementById('tabs').querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
-      if(currentCategory === 'ALL') document.getElementById('tabs').querySelector('[data-estado="ALL"]').classList.add('active');
     });
   });
 
-  // --- estados / tabs ---
-  const counts = {};
-  RAW.forEach(r => {
-    const e = (r['Estado'] || 'Sin estado').toString().trim();
-    counts[e] = (counts[e]||0) + 1;
-  });
-  const estados = Object.keys(counts).sort((a,b) => counts[b]-counts[a]);
-
-  const tabsEl = document.getElementById('tabs');
-  let tabsHtml = `<div class="tab ${currentEstado==='ALL'?'active':''}" data-estado="ALL">Todos <span class="count">${total}</span></div>`;
-  estados.forEach(e => {
-    tabsHtml += `<div class="tab ${currentEstado===e?'active':''}" data-estado="${escapeAttr(e)}">${escapeHtml(e)} <span class="count">${counts[e]}</span></div>`;
-  });
-  tabsEl.innerHTML = tabsHtml;
-  tabsEl.querySelectorAll('.tab').forEach(el => {
-    el.addEventListener('click', () => {
-      currentEstado = el.getAttribute('data-estado');
-      currentCategory = 'ALL';
+  // --- atajos rápidos: cruces frecuentes de estado + novedad ---
+  const entregadasConNov = RAW.filter(r => matchesCategory(r,'ENTREGADAS') && r['Novedad']).length;
+  const procesoConNov = RAW.filter(r => matchesCategory(r,'EN_PROCESO') && r['Novedad']).length;
+  const shortcutsEl = document.getElementById('shortcuts');
+  shortcutsEl.innerHTML = `
+    <div class="shortcut-chip" data-cat="ENTREGADAS">Entregadas con incidencia (${entregadasConNov})</div>
+    <div class="shortcut-chip" data-cat="EN_PROCESO">En proceso con incidencia (${procesoConNov})</div>
+    <div class="shortcut-chip" data-cat="ALL">Todas las incidencias (${conNovedadTotal})</div>
+  `;
+  shortcutsEl.querySelectorAll('.shortcut-chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      currentCategory = chip.getAttribute('data-cat');
+      currentEstado = 'ALL';
+      onlyNovedad = true;
+      document.getElementById('novedadToggle').checked = true;
+      document.getElementById('novedadToggleWrap').classList.add('active');
+      buildTabs();
       renderTable();
-      tabsEl.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
-      el.classList.add('active');
       document.querySelectorAll('.card').forEach(c => c.classList.remove('active'));
+      if(currentCategory !== 'ALL') document.querySelector(`.card[data-category="${currentCategory}"]`).classList.add('active');
     });
   });
+
+  buildTabs();
 
   // --- destination filter ---
   const destSelect = document.getElementById('destFilter');
@@ -449,19 +484,62 @@ function buildApp(){
 
   document.getElementById('search').addEventListener('input', renderTable);
   destSelect.addEventListener('change', renderTable);
+
+  const novWrap = document.getElementById('novedadToggleWrap');
+  document.getElementById('novedadToggle').addEventListener('change', (e) => {
+    onlyNovedad = e.target.checked;
+    novWrap.classList.toggle('active', onlyNovedad);
+    renderTable();
+  });
+
   document.getElementById('resetBtn').addEventListener('click', () => {
     document.getElementById('search').value = '';
     destSelect.value = '';
+    document.getElementById('novedadToggle').checked = false;
+    novWrap.classList.remove('active');
     currentEstado = 'ALL';
     currentCategory = 'ALL';
+    onlyNovedad = false;
+    buildTabs();
     renderTable();
-    tabsEl.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
-    tabsEl.querySelector('[data-estado="ALL"]').classList.add('active');
     document.querySelectorAll('.card').forEach(c => c.classList.remove('active'));
   });
 
   renderTable();
   buildAnalytics();
+}
+
+function buildTabs(){
+  const tabsEl = document.getElementById('tabs');
+  const pool = RAW.filter(r => matchesCategory(r, currentCategory));
+  const counts = {};
+  pool.forEach(r => {
+    const e = (r['Estado'] || 'Sin estado').toString().trim();
+    counts[e] = (counts[e]||0) + 1;
+  });
+  const estados = Object.keys(counts).sort((a,b) => counts[b]-counts[a]);
+  const total = pool.length;
+
+  let tabsHtml = `<div class="tab ${currentEstado==='ALL'?'active':''}" data-estado="ALL">Todos ${categoryLabel()} <span class="count">${total}</span></div>`;
+  estados.forEach(e => {
+    tabsHtml += `<div class="tab ${currentEstado===e?'active':''}" data-estado="${escapeAttr(e)}">${escapeHtml(e)} <span class="count">${counts[e]}</span></div>`;
+  });
+  tabsEl.innerHTML = tabsHtml;
+  tabsEl.querySelectorAll('.tab').forEach(el => {
+    el.addEventListener('click', () => {
+      currentEstado = el.getAttribute('data-estado');
+      renderTable();
+      tabsEl.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+      el.classList.add('active');
+    });
+  });
+}
+
+function categoryLabel(){
+  if(currentCategory === 'ENTREGADAS') return '(Entregadas)';
+  if(currentCategory === 'EN_PROCESO') return '(En proceso)';
+  if(currentCategory === 'INCIDENCIA') return '(Incidencias)';
+  return '';
 }
 
 function setupViewSwitch(){
@@ -597,13 +675,9 @@ function renderTable(){
   const dest = document.getElementById('destFilter').value;
 
   let rows = RAW.filter(r => {
+    if(!matchesCategory(r, currentCategory)) return false;
     if(currentEstado !== 'ALL' && String(r['Estado']||'Sin estado').trim() !== currentEstado) return false;
-    if(currentCategory !== 'ALL'){
-      const s = String(r['Estado']||'').toLowerCase();
-      if(currentCategory === 'ENTREGADAS' && !s.includes('entregada')) return false;
-      if(currentCategory === 'EN_PROCESO' && !(s.includes('transporte') || s.includes('terminal') || s.includes('distribuci') || s.includes('recogida'))) return false;
-      if(currentCategory === 'INCIDENCIA' && !s.includes('incidencia')) return false;
-    }
+    if(onlyNovedad && !r['Novedad']) return false;
     if(dest && r['Destino'] !== dest) return false;
     if(search){
       const hay = [
