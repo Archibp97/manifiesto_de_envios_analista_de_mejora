@@ -328,11 +328,18 @@ let currentCategory = 'ALL'; // ALL | ENTREGADAS | EN_PROCESO | INCIDENCIA
 let onlyNovedad = false;
 let charts = {}; // referencias a instancias Chart.js para poder destruirlas al recargar
 
+function tieneFechaEntregaReal(r){
+  const v = r['Fecha entrega'];
+  if(!v) return false;
+  if(String(v).trim() === '-') return false;
+  return true;
+}
+
 function matchesCategory(r, category){
   if(category === 'ALL') return true;
   const s = String(r['Estado']||'').toLowerCase();
-  if(category === 'ENTREGADAS') return s.includes('entregada');
-  if(category === 'EN_PROCESO') return (s.includes('transporte') || s.includes('terminal') || s.includes('distribuci') || s.includes('recogida'));
+  if(category === 'ENTREGADAS') return tieneFechaEntregaReal(r);
+  if(category === 'EN_PROCESO') return !tieneFechaEntregaReal(r);
   if(category === 'INCIDENCIA') return s.includes('cerrado por incidencia');
   return true;
 }
@@ -424,19 +431,16 @@ function buildApp(){
 
   // --- summary cards ---
   const total = RAW.length;
-  const entregadas = RAW.filter(r => String(r['Estado']||'').toLowerCase().includes('entregada')).length;
+  const entregadas = RAW.filter(r => tieneFechaEntregaReal(r)).length;
   const incidencias = RAW.filter(r => String(r['Estado']||'').toLowerCase().includes('incidencia')).length;
-  const enRuta = RAW.filter(r => {
-    const s = String(r['Estado']||'').toLowerCase();
-    return s.includes('transporte') || s.includes('terminal') || s.includes('distribuci') || s.includes('recogida');
-  }).length;
+  const enRuta = RAW.filter(r => !tieneFechaEntregaReal(r)).length;
 
   const conNovedadTotal = RAW.filter(r => r['Novedad']).length;
 
   document.getElementById('summary').innerHTML = `
     <div class="card total" data-category="ALL"><div class="n">${total}</div><div class="l">Total envíos</div></div>
-    <div class="card ok" data-category="ENTREGADAS"><div class="n">${entregadas}</div><div class="l">Entregadas</div></div>
-    <div class="card warn" data-category="EN_PROCESO"><div class="n">${enRuta}</div><div class="l">En proceso</div></div>
+    <div class="card ok" data-category="ENTREGADAS"><div class="n">${entregadas}</div><div class="l">Entregadas (con fecha)</div></div>
+    <div class="card warn" data-category="EN_PROCESO"><div class="n">${enRuta}</div><div class="l">En proceso (sin fecha)</div></div>
     <div class="card bad" data-category="INCIDENCIA"><div class="n">${incidencias}</div><div class="l">Cerrado por incidencia</div></div>
   `;
   document.querySelectorAll('.card').forEach(el => {
