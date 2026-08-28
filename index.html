@@ -99,6 +99,17 @@
   .card:hover{ box-shadow:0 2px 6px rgba(15,27,43,0.12); }
   .card.active{ border-color:var(--ink); box-shadow:0 0 0 2px var(--ink) inset; }
 
+  .carrier-badge{
+    display:flex; width:fit-content; align-items:center; gap:12px; padding:14px 24px; border-radius:6px;
+    font-family:var(--mono); font-size:18px; font-weight:800; letter-spacing:0.6px; text-transform:uppercase;
+    margin:0 auto 20px; border:2px solid;
+  }
+  .carrier-badge .dot{ width:13px; height:13px; border-radius:50%; }
+  .carrier-badge.coordinadora{ background:#dbe7f5; color:#0b4a8f; border-color:#0b4a8f; }
+  .carrier-badge.coordinadora .dot{ background:#0b4a8f; }
+  .carrier-badge.envia{ background:var(--red-soft); color:var(--red); border-color:var(--red); }
+  .carrier-badge.envia .dot{ background:var(--red); }
+
   /* ---- Tabs ---- */
   .tabs{
     display:flex; flex-wrap:wrap; gap:6px; margin-bottom:16px;
@@ -241,6 +252,8 @@
 
   <div id="app" style="display:none;">
 
+    <div class="carrier-badge" id="carrierBadge"><span class="dot"></span><span id="carrierBadgeText"></span></div>
+
     <div class="summary" id="summary"></div>
 
     <div class="view-switch">
@@ -326,6 +339,7 @@ let RAW = [];
 let currentEstado = 'ALL';
 let currentCategory = 'ALL'; // ALL | ENTREGADAS | EN_PROCESO | INCIDENCIA
 let onlyNovedad = false;
+let currentCarrier = null; // 'coordinadora' | 'envia'
 let charts = {}; // referencias a instancias Chart.js para poder destruirlas al recargar
 
 function tieneFechaEntregaReal(r){
@@ -340,7 +354,7 @@ function matchesCategory(r, category){
   const s = String(r['Estado']||'').toLowerCase();
   if(category === 'ENTREGADAS') return tieneFechaEntregaReal(r);
   if(category === 'EN_PROCESO') return !tieneFechaEntregaReal(r);
-  if(category === 'INCIDENCIA') return s.includes('cerrado por incidencia');
+  if(category === 'INCIDENCIA') return s.includes('incidencia') || s.includes('novedad');
   return true;
 }
 
@@ -362,6 +376,72 @@ fileInput.addEventListener('change', e => {
   if(e.target.files.length) handleFile(e.target.files[0]);
 });
 
+// Busca una columna por nombres candidatos, tolerando comillas/espacios extra en el encabezado
+// (el .xls legacy de Envía a veces trae headers como "'Guia" con un apóstrofe pegado)
+function findKey(row, candidates){
+  const keys = Object.keys(row);
+  for(const cand of candidates){
+    if(keys.includes(cand)) return cand;
+  }
+  const normalized = keys.map(k => ({orig:k, norm:k.replace(/['"]/g,'').trim().toLowerCase()}));
+  for(const cand of candidates){
+    const hit = normalized.find(n => n.norm === cand.toLowerCase());
+    if(hit) return hit.orig;
+  }
+  return null;
+}
+
+// Detecta de qué transportadora es el archivo mirando sus columnas, sin adivinar por el nombre del archivo
+function detectCarrier(row){
+  const keys = Object.keys(row);
+  if(keys.includes('Codigo remision')) return 'coordinadora';
+  const guiaKey = findKey(row, ['Guia']);
+  if(guiaKey && keys.includes('Estado') && keys.includes('Fec_Entrega')) return 'envia';
+  return null;
+}
+
+// Traduce una fila del formato de Envía al mismo esquema interno que ya usa Coordinadora,
+// para que el resto de la app (filtros, pestañas, análisis) funcione sin ningún cambio.
+function normalizeEnvia(row, guiaKey){
+  const codigo = String(row[guiaKey] || '').replace(/'/g, '').trim();
+  const fechaEntrega = row['Fec_Entrega'] || null; // Date o null; en Envía viene limpio (sin texto "-")
+  const tieneFecha = !!fechaEntrega;
+  const novedad = row['Des_Novedad'] || null;
+
+  let eficiencia;
+  if(tieneFecha){
+    const prom = row['Dias_Prometidos'], trans = row['Dias_Entrega'];
+    if(prom !== null && prom !== undefined && trans !== null && trans !== undefined){
+      eficiencia = Number(trans) <= Number(prom) ? 'A tiempo' : 'Mayor tiempo no justificado';
+    } else {
+      eficiencia = 'A tiempo';
+    }
+  } else if(novedad){
+    eficiencia = 'Oportunidad de mejora';
+  } else {
+    eficiencia = 'En Proceso Entrega';
+  }
+
+  return {
+    'Codigo remision': codigo,
+    'Estado': row['Estado'] || 'Sin estado',
+    'Ciudad origen': row['Ciudad_Origen'] || null,
+    'Destino': row['Ciudad_Destino'] || null,
+    'Nombre destinatario': row['Nombre_Destinatario'] || null,
+    'Fecha recogida': row['Fec_Captura'] || null,
+    'Fecha entrega': fechaEntrega,
+    'Dias transcurridos': tieneFecha ? row['Dias_Entrega'] : null, // solo si ya se entregó, evita plazos engañosos en tránsito
+    'Dias ofrecidos': row['Dias_Prometidos'],
+    'Eficiencia': eficiencia,
+    'Peso': row['PesoReal'],
+    'Flete Total': row['Total'],
+    'Novedad': novedad,
+    'Factura': row['Factura'] || null,
+    'Documento': row['Numero_Documento'] || null,
+    'Cliente': row['Nom_Remitente'] || null
+  };
+}
+
 function handleFile(file){
   uploadError.style.display = 'none';
   const reader = new FileReader();
@@ -372,8 +452,22 @@ function handleFile(file){
       const sheet = wb.Sheets[wb.SheetNames[0]];
       const json = XLSX.utils.sheet_to_json(sheet, {defval:null, raw:true});
       if(!json.length) throw new Error('El archivo no contiene filas de datos.');
-      RAW = json;
-      fileTag.textContent = file.name.length > 40 ? file.name.slice(0,37)+'...' : file.name;
+
+      const carrier = detectCarrier(json[0]);
+      let carrierLabel;
+      if(carrier === 'coordinadora'){
+        RAW = json; // sin tocar: comportamiento original intacto
+        carrierLabel = 'Coordinadora';
+      } else if(carrier === 'envia'){
+        const guiaKey = findKey(json[0], ['Guia']);
+        RAW = json.map(r => normalizeEnvia(r, guiaKey));
+        carrierLabel = 'Envía';
+      } else {
+        throw new Error('No reconozco la estructura de este archivo. Verifica que sea un informe de Coordinadora o de Envía.');
+      }
+      currentCarrier = carrier;
+
+      fileTag.textContent = (file.name.length > 34 ? file.name.slice(0,31)+'...' : file.name);
       currentEstado = 'ALL';
       currentCategory = 'ALL';
       onlyNovedad = false;
@@ -428,6 +522,12 @@ function estadoPillClass(estado){
 
 function buildApp(){
   app.style.display = 'block';
+
+  // --- insignia de transportadora ---
+  const badgeEl = document.getElementById('carrierBadge');
+  const badgeTextEl = document.getElementById('carrierBadgeText');
+  badgeEl.className = 'carrier-badge ' + currentCarrier;
+  badgeTextEl.textContent = currentCarrier === 'envia' ? 'Datos de Envía' : 'Datos de Coordinadora';
 
   // --- summary cards ---
   const total = RAW.length;
