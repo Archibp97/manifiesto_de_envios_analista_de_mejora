@@ -424,7 +424,6 @@
                 <th>Envíos</th>
                 <th>Cumplen</th>
                 <th>No cumplen</th>
-                <th>Sin plan</th>
                 <th>% cumple</th>
               </tr>
             </thead>
@@ -490,7 +489,7 @@ let onlyNovedad = false;
 const DATA = { coordinadora:null, envia:null, transprensa:null, plan:null }; // cada uno: { rows|ciudades, fileName }
 let carrierFilter = 'ALL';   // ALL | coordinadora | envia (solo aplica cuando hay ambas cargadas)
 let currentView = 'manifiesto'; // manifiesto | analytics | planb
-let planStatusFilter = 'ALL';   // ALL | CUMPLE | NO_CUMPLE | NO_PLAN
+let planStatusFilter = 'ALL';   // ALL | CUMPLE | NO_CUMPLE
 
 // Plan B de julio 2026 (incluido por defecto). Formato: [ciudad, transportadora, razón, tarifa Envía, tarifa Coordinadora, tarifa Transprensa]
 // Si subes un archivo de plan nuevo (hoja "Plan B - Ciudades"), reemplaza a este.
@@ -1201,9 +1200,11 @@ function planMap(){
   return m;
 }
 
+// Regla del Plan B: todo destino que no está en el plan se establece para enviarse con Envía
+const FUERA_DEL_PLAN = {ciudad:'', carrier:'Envía', razon:'Destino fuera del plan', tEnvia:null, tCoord:null, tTransp:null, fuera:true};
+
 function classifyItem(item, map){
-  const p = map.get(normCity(item.destino));
-  if(!p) return {status:'NO_PLAN', plan:null};
+  const p = map.get(normCity(item.destino)) || FUERA_DEL_PLAN;
   return {status: normCity(p.carrier) === normCity(item.carrier) ? 'CUMPLE' : 'NO_CUMPLE', plan:p};
 }
 
@@ -1218,14 +1219,13 @@ function carrierTagLg(name){
 
 // Lo que debía hacerse según el Plan B
 function expectedCell(c){
-  if(!c.plan) return '<span class="ctag lg sinplan">SIN ASIGNAR</span><span class="plan-sub">El destino no está en el plan</span>';
-  return carrierTagLg(c.plan.carrier);
+  const sub = c.plan.fuera ? '<span class="plan-sub">Destino fuera del plan</span>' : '';
+  return carrierTagLg(c.plan.carrier) + sub;
 }
 
 function statusPill(c){
   if(c.status === 'CUMPLE') return '<span class="pill ok">Cumple</span>';
-  if(c.status === 'NO_CUMPLE') return '<span class="pill bad">No cumple</span>';
-  return '<span class="pill warn">Sin plan</span>';
+  return '<span class="pill bad">No cumple</span>';
 }
 
 // Todos los envíos cargados (Coordinadora, Envía y Transprensa), con la transportadora con la que salieron
@@ -1313,7 +1313,6 @@ function renderPlanB(){
   const total = PLANB_ROWS.length;
   const cumple = PLANB_ROWS.filter(x => x.c.status === 'CUMPLE');
   const noCumple = PLANB_ROWS.filter(x => x.c.status === 'NO_CUMPLE');
-  const noPlan = PLANB_ROWS.filter(x => x.c.status === 'NO_PLAN');
   const pct = (n, d) => d ? (n / d * 100).toFixed(1) : '0.0';
 
   // todas las transportadoras cargadas, aunque no tengan envíos en el rango elegido (así nunca desaparecen sin aviso)
@@ -1322,14 +1321,14 @@ function renderPlanB(){
   const rango = filtering ? ' · Rango: ' + (desde ? 'desde ' + fmtKey(desde) : '') + (desde && hasta ? ' ' : '') + (hasta ? 'hasta ' + fmtKey(hasta) : '') +
     (sinFecha ? ' (' + sinFecha + ' envíos sin fecha no se incluyen)' : '') : '';
   document.getElementById('planNote').innerHTML =
-    `<b>Se envió con</b>: la transportadora del archivo de donde sale el envío. <b>Debía ir con</b>: la que asigna el Plan B a ese destino.<br>` +
+    `<b>Se envió con</b>: la transportadora del archivo de donde sale el envío. <b>Debía ir con</b>: la que asigna el Plan B a ese destino; si el destino no está en el plan, se asigna a Envía.<br>` +
     `<span class="muted">Plan: ${planSrc} · Revisados: ${carriers.map(c => c + ' (' + PLANB_ROWS.filter(x => x.t.carrier === c).length + ')').join(', ')}${rango}</span>`;
 
   document.getElementById('planKpis').innerHTML = `
     <div class="kpi"><div class="n">${total}</div><div class="l">Envíos revisados</div></div>
-    <div class="kpi"><div class="n" style="color:var(--teal)">${cumple.length}</div><div class="l">Cumplen el plan (${pct(cumple.length, total)}%)</div></div>
+    <div class="kpi" style="border-left-color:var(--teal)"><div class="n" style="color:var(--teal); font-size:30px">${total ? pct(cumple.length, total) + '%' : '—'}</div><div class="l">Cumplimiento global del Plan B</div></div>
+    <div class="kpi"><div class="n" style="color:var(--teal)">${cumple.length}</div><div class="l">Cumplen el plan</div></div>
     <div class="kpi"><div class="n" style="color:var(--red)">${noCumple.length}</div><div class="l">No cumplen el plan</div></div>
-    <div class="kpi"><div class="n" style="color:var(--amber)">${noPlan.length}</div><div class="l">Destino sin plan</div></div>
   `;
 
   // por transportadora
@@ -1337,8 +1336,7 @@ function renderPlanB(){
     const rows = PLANB_ROWS.filter(x => x.t.carrier === c);
     const cu = rows.filter(x => x.c.status === 'CUMPLE').length;
     const nc = rows.filter(x => x.c.status === 'NO_CUMPLE').length;
-    const np = rows.filter(x => x.c.status === 'NO_PLAN').length;
-    return `<tr><td>${carrierTagLg(c)}</td><td>${rows.length}</td><td>${cu}</td><td>${nc}</td><td>${np}</td><td><b>${rows.length ? pct(cu, rows.length) + '%' : '—'}</b></td></tr>`;
+    return `<tr><td>${carrierTagLg(c)}</td><td>${rows.length}</td><td>${cu}</td><td>${nc}</td><td><b>${rows.length ? pct(cu, rows.length) + '%' : '—'}</b></td></tr>`;
   }).join('');
 
   // por destino
@@ -1350,8 +1348,8 @@ function renderPlanB(){
     g.n[carrierKey(t.carrier)]++; g.total++;
     if(c.status === 'NO_CUMPLE') g.bad++;
   });
-  const cityStatus = g => !g.plan ? 'NO_PLAN' : (g.bad > 0 ? 'NO_CUMPLE' : 'CUMPLE');
-  const order = {NO_CUMPLE:0, NO_PLAN:1, CUMPLE:2};
+  const cityStatus = g => g.bad > 0 ? 'NO_CUMPLE' : 'CUMPLE';
+  const order = {NO_CUMPLE:0, CUMPLE:1};
   const cities = [...byCity.values()].sort((a, b) => (order[cityStatus(a)] - order[cityStatus(b)]) || (b.bad - a.bad) || (b.total - a.total));
   document.getElementById('planCityBody').innerHTML = cities.map(g => {
     const st = cityStatus(g);
@@ -1369,7 +1367,7 @@ function renderPlanB(){
 
   // filtros del detalle (se conserva lo que el usuario ya eligió)
   const tabsEl = document.getElementById('planTabs');
-  const tabDefs = [['ALL', 'Todos', total], ['NO_CUMPLE', 'No cumple', noCumple.length], ['NO_PLAN', 'Sin plan', noPlan.length], ['CUMPLE', 'Cumple', cumple.length]];
+  const tabDefs = [['ALL', 'Todos', total], ['NO_CUMPLE', 'No cumple', noCumple.length], ['CUMPLE', 'Cumple', cumple.length]];
   tabsEl.innerHTML = tabDefs.map(([k, label, n]) => `<div class="tab ${k === planStatusFilter ? 'active' : ''}" data-status="${k}">${label} <span class="count">${n}</span></div>`).join('');
   tabsEl.querySelectorAll('.tab').forEach(el => el.addEventListener('click', () => {
     planStatusFilter = el.getAttribute('data-status');
