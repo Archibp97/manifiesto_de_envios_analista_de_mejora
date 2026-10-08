@@ -558,15 +558,37 @@ function detectCarrier(row){
 
 // Traduce una fila del formato de Envía al mismo esquema interno que ya usa Coordinadora,
 // para que el resto de la app (filtros, pestañas, análisis) funcione sin ningún cambio.
+// Fecha (Date) a partir de un Date o de un texto dd/mm/aaaa
+function toDateAny(v){
+  if(v instanceof Date) return isNaN(v) ? null : v;
+  if(!v) return null;
+  const p = String(v).trim().split('/');
+  if(p.length === 3){ const d = new Date(String(p[2]).slice(0, 4), p[1] - 1, p[0]); return isNaN(d) ? null : d; }
+  const d = new Date(v); return isNaN(d) ? null : d;
+}
+
+function daysBetween(a, b){
+  const da = toDateAny(a), db = toDateAny(b);
+  if(!da || !db) return null;
+  const n = Math.round((db - da) / 86400000);
+  return n >= 0 ? n : null;
+}
+
 function normalizeEnvia(row, guiaKey){
   const codigo = String(row[guiaKey] || '').replace(/'/g, '').trim();
   const fechaEntrega = row['Fec_Entrega'] || null; // Date o null; en Envía viene limpio (sin texto "-")
   const tieneFecha = !!fechaEntrega;
   const novedad = row['Des_Novedad'] || null;
 
+  // Envía tiene más de un formato de informe: la fecha de recogida puede venir como Fec_Captura o Fec_Produccion,
+  // y los días prometidos como Dias_Prometidos o Dias_Cubrimiento. Si el informe no trae Dias_Entrega, se calcula con las fechas.
+  const recogida = (row['Fec_Captura'] !== undefined ? row['Fec_Captura'] : row['Fec_Produccion']) || null;
+  const prom = row['Dias_Prometidos'] !== undefined ? row['Dias_Prometidos'] : row['Dias_Cubrimiento'];
+  const trans = row['Dias_Entrega'] !== undefined ? row['Dias_Entrega'] : (tieneFecha ? daysBetween(recogida, fechaEntrega) : null);
+  const origen = row['Ciudad_Origen'] !== undefined ? (row['Ciudad_Origen'] || null) : (row['RegionalO'] || null);
+
   let eficiencia;
   if(tieneFecha){
-    const prom = row['Dias_Prometidos'], trans = row['Dias_Entrega'];
     if(prom !== null && prom !== undefined && trans !== null && trans !== undefined){
       eficiencia = Number(trans) <= Number(prom) ? 'A tiempo' : 'Mayor tiempo no justificado';
     } else {
@@ -581,13 +603,13 @@ function normalizeEnvia(row, guiaKey){
   return {
     'Codigo remision': codigo,
     'Estado': row['Estado'] || 'Sin estado',
-    'Ciudad origen': row['Ciudad_Origen'] || null,
+    'Ciudad origen': origen,
     'Destino': row['Ciudad_Destino'] || null,
     'Nombre destinatario': row['Nombre_Destinatario'] || null,
-    'Fecha recogida': row['Fec_Captura'] || null,
+    'Fecha recogida': recogida,
     'Fecha entrega': fechaEntrega,
-    'Dias transcurridos': tieneFecha ? row['Dias_Entrega'] : null, // solo si ya se entregó, evita plazos engañosos en tránsito
-    'Dias ofrecidos': row['Dias_Prometidos'],
+    'Dias transcurridos': tieneFecha ? trans : null, // solo si ya se entregó, evita plazos engañosos en tránsito
+    'Dias ofrecidos': prom,
     'Eficiencia': eficiencia,
     'Unidades': row['Num_Unidades'],
     'Peso': row['PesoReal'],
@@ -600,6 +622,16 @@ function normalizeEnvia(row, guiaKey){
 }
 
 // ---------- Lectores por tipo de archivo ----------
+
+// Algunos informes (Envía) son una tabla HTML con extensión .xls. Con la lectura normal, un texto como "06/10/2026"
+// (6 de octubre) se interpreta como mes/día y queda en otra fecha; en modo texto se conserva tal cual.
+function looksLikeHtml(buf){
+  const u = new Uint8Array(buf, 0, Math.min(buf.byteLength, 600));
+  let t = '';
+  for(let i = 0; i < u.length; i++) t += String.fromCharCode(u[i]);
+  t = t.toLowerCase();
+  return t.includes('<html') || t.includes('<table');
+}
 
 function readFileBuffer(file){
   return new Promise((resolve, reject) => {
@@ -701,7 +733,7 @@ async function handleFiles(files){
   for(const file of files){
     try{
       const buf = await readFileBuffer(file);
-      const wb = XLSX.read(new Uint8Array(buf), {type:'array', cellDates:true});
+      const wb = XLSX.read(new Uint8Array(buf), looksLikeHtml(buf) ? {type:'array', cellDates:true, raw:true} : {type:'array', cellDates:true});
       const res = classifyWorkbook(wb);
       DATA[res.type] = res.type === 'plan' ? {fileName:file.name, ciudades:res.ciudades} : {fileName:file.name, rows:res.rows};
       loadedTypes.push(res.type);
@@ -1284,13 +1316,14 @@ function renderPlanB(){
   const noPlan = PLANB_ROWS.filter(x => x.c.status === 'NO_PLAN');
   const pct = (n, d) => d ? (n / d * 100).toFixed(1) : '0.0';
 
-  const carriers = ['Coordinadora', 'Envía', 'Transprensa'].filter(c => PLANB_ROWS.some(x => x.t.carrier === c));
+  // todas las transportadoras cargadas, aunque no tengan envíos en el rango elegido (así nunca desaparecen sin aviso)
+  const carriers = ['Coordinadora', 'Envía', 'Transprensa'].filter(c => PLANB_ALL.some(x => x.t.carrier === c));
   const planSrc = DATA.plan ? escapeHtml(DATA.plan.fileName) : 'Plan B de julio 2026 (incluido en la app)';
   const rango = filtering ? ' · Rango: ' + (desde ? 'desde ' + fmtKey(desde) : '') + (desde && hasta ? ' ' : '') + (hasta ? 'hasta ' + fmtKey(hasta) : '') +
     (sinFecha ? ' (' + sinFecha + ' envíos sin fecha no se incluyen)' : '') : '';
   document.getElementById('planNote').innerHTML =
     `<b>Se envió con</b>: la transportadora del archivo de donde sale el envío. <b>Debía ir con</b>: la que asigna el Plan B a ese destino.<br>` +
-    `<span class="muted">Plan: ${planSrc} · Revisados: ${carriers.length ? carriers.map(c => c + ' (' + PLANB_ROWS.filter(x => x.t.carrier === c).length + ')').join(', ') : 'ninguno en este rango'}${rango}</span>`;
+    `<span class="muted">Plan: ${planSrc} · Revisados: ${carriers.map(c => c + ' (' + PLANB_ROWS.filter(x => x.t.carrier === c).length + ')').join(', ')}${rango}</span>`;
 
   document.getElementById('planKpis').innerHTML = `
     <div class="kpi"><div class="n">${total}</div><div class="l">Envíos revisados</div></div>
@@ -1305,7 +1338,7 @@ function renderPlanB(){
     const cu = rows.filter(x => x.c.status === 'CUMPLE').length;
     const nc = rows.filter(x => x.c.status === 'NO_CUMPLE').length;
     const np = rows.filter(x => x.c.status === 'NO_PLAN').length;
-    return `<tr><td>${carrierTagLg(c)}</td><td>${rows.length}</td><td>${cu}</td><td>${nc}</td><td>${np}</td><td><b>${pct(cu, rows.length)}%</b></td></tr>`;
+    return `<tr><td>${carrierTagLg(c)}</td><td>${rows.length}</td><td>${cu}</td><td>${nc}</td><td>${np}</td><td><b>${rows.length ? pct(cu, rows.length) + '%' : '—'}</b></td></tr>`;
   }).join('');
 
   // por destino
