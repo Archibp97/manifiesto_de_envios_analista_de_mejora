@@ -243,6 +243,10 @@
   .ctag{ display:inline-block; margin-left:6px; padding:1px 6px; border-radius:3px; font-size:9.5px; font-weight:700; letter-spacing:0.3px; color:#fff; vertical-align:middle; }
   .ctag.coordinadora{ background:#0b4a8f; }
   .ctag.envia{ background:var(--red); }
+  .ctag.transprensa{ background:var(--teal); }
+  .ctag.sinplan{ background:var(--amber); }
+  .ctag.lg{ margin-left:0; padding:4px 10px; font-size:11px; border-radius:4px; }
+  tr.row-bad td:first-child{ box-shadow: inset 4px 0 0 var(--red); }
 
   /* ---- Archivos cargados ---- */
   .loaded-files{ display:flex; flex-wrap:wrap; gap:8px; justify-content:center; margin-top:14px; }
@@ -345,8 +349,6 @@
               <th>Fecha entrega</th>
               <th>Plazo</th>
               <th>Eficiencia</th>
-              <th>Peso</th>
-              <th>Flete total</th>
               <th>Novedad</th>
             </tr>
           </thead>
@@ -401,8 +403,8 @@
                 <th>Destino</th>
                 <th>Remesas</th>
                 <th>Unidades</th>
-                <th>Valor total</th>
-                <th>Plan B asigna</th>
+                <th>Se envió con</th>
+                <th>Debía ir con (Plan B)</th>
                 <th>Control</th>
               </tr>
             </thead>
@@ -421,19 +423,13 @@
                 <th>Ruta</th>
                 <th>Destinatario</th>
                 <th>Unid.</th>
-                <th>Valor total</th>
-                <th>Tarifa/u real</th>
-                <th>Plan B asigna</th>
-                <th>Tarifa/u plan</th>
+                <th>Se envió con</th>
+                <th>Debía ir con (Plan B)</th>
                 <th>Control</th>
               </tr>
             </thead>
             <tbody id="planDetailBody"></tbody>
           </table>
-        </div>
-        <div class="table-note">
-          Tarifa/u real = valor total de la remesa ÷ unidades (lo que cobró Transprensa). Tarifa/u plan = tarifa unitaria de la transportadora que asigna el Plan B;
-          en Coordinadora es la tarifa plena, antes del descuento de 18% a 21% por volumen.
         </div>
       </div>
     </div>
@@ -942,10 +938,6 @@ setupViewSwitch();
 function buildAnalytics(){
   // ---- KPIs ----
   const total = RAW.length;
-  const pesos = RAW.map(r => Number(r['Peso'])).filter(v => !isNaN(v));
-  const fletes = RAW.map(r => Number(r['Flete Total'])).filter(v => !isNaN(v));
-  const pesoTotal = pesos.reduce((a,b)=>a+b, 0);
-  const fleteTotal = fletes.reduce((a,b)=>a+b, 0);
   const aTiempo = RAW.filter(r => String(r['Eficiencia']||'').toLowerCase().includes('a tiempo')).length;
   const conEficiencia = RAW.filter(r => r['Eficiencia']).length;
   const pctATiempo = conEficiencia ? ((aTiempo/conEficiencia)*100).toFixed(1) : '0';
@@ -957,8 +949,6 @@ function buildAnalytics(){
     <div class="kpi"><div class="n">${total}</div><div class="l">Envíos totales</div></div>
     <div class="kpi"><div class="n">${pctATiempo}%</div><div class="l">Entregas a tiempo</div></div>
     <div class="kpi"><div class="n">${promedioDias}</div><div class="l">Días transcurridos (prom.)</div></div>
-    <div class="kpi"><div class="n">$${Math.round(fleteTotal).toLocaleString('es-CO')}</div><div class="l">Flete total facturado</div></div>
-    <div class="kpi"><div class="n">${pesoTotal.toLocaleString('es-CO')} kg</div><div class="l">Peso total movilizado</div></div>
     <div class="kpi"><div class="n">${conNovedad}</div><div class="l">Envíos con novedad</div></div>
   `;
 
@@ -1101,7 +1091,6 @@ function renderTable(){
       const over = Number(dias) > Number(ofrecidos);
       plazoHtml = `<span class="pill ${over?'bad':'ok'}">${dias} / ${ofrecidos} d</span>`;
     }
-    const peso = r['Peso'] ? r['Peso']+' kg' : '<span class="muted">—</span>';
     const novedad = r['Novedad'] ? `<div class="novedad">${escapeHtml(r['Novedad'])}</div>` : '<span class="muted">—</span>';
 
     return `<tr>
@@ -1112,8 +1101,6 @@ function renderTable(){
       <td>${fmtDate(r['Fecha entrega'])}</td>
       <td>${plazoHtml}</td>
       <td>${efficiencyPill(r['Eficiencia'])}</td>
-      <td>${peso}</td>
-      <td><span class="money">${fmtMoney(r['Flete Total'])}</span></td>
       <td>${novedad}</td>
     </tr>`;
   }).join('');
@@ -1146,26 +1133,25 @@ function classifyRemesa(t, map){
   return {status: normCity(p.carrier) === 'TRANSPRENSA' ? 'CUMPLE' : 'NO_CUMPLE', plan:p};
 }
 
-function planTarifa(p){
-  if(!p) return null;
-  const c = normCity(p.carrier);
-  if(c === 'ENVIA') return p.tEnvia;
-  if(c === 'COORDINADORA') return p.tCoord;
-  if(c === 'TRANSPRENSA') return p.tTransp;
-  return null;
+function carrierKey(name){
+  const c = normCity(name);
+  return c === 'ENVIA' ? 'envia' : c === 'COORDINADORA' ? 'coordinadora' : c === 'TRANSPRENSA' ? 'transprensa' : 'sinplan';
+}
+
+function carrierTagLg(name){
+  return `<span class="ctag lg ${carrierKey(name)}">${escapeHtml(String(name).toUpperCase())}</span>`;
+}
+
+// Lo que debía hacerse según el Plan B
+function expectedCell(c){
+  if(!c.plan) return '<span class="ctag lg sinplan">SIN ASIGNAR</span><span class="plan-sub">El destino no está en el plan</span>';
+  return carrierTagLg(c.plan.carrier);
 }
 
 function statusPill(c){
   if(c.status === 'CUMPLE') return '<span class="pill ok">Cumple</span>';
-  if(c.status === 'NO_CUMPLE') return `<span class="pill bad">No cumple</span><span class="plan-sub">Debía ir con ${escapeHtml(c.plan.carrier)}</span>`;
-  return '<span class="pill warn">No está en el plan</span><span class="plan-sub">Regla del plan: Envía y avisar a gerencia</span>';
-}
-
-function planCell(c){
-  if(!c.plan) return '<span class="muted">—</span>';
-  const sinCob = c.plan.tTransp == null ? '<span class="plan-sub">Transprensa sin cobertura en el plan</span>' : '';
-  const razon = c.plan.razon ? `<span class="plan-sub">${escapeHtml(c.plan.razon)}</span>` : '';
-  return `<b>${escapeHtml(c.plan.carrier)}</b>${razon}${sinCob}`;
+  if(c.status === 'NO_CUMPLE') return '<span class="pill bad">No cumple</span>';
+  return '<span class="pill warn">Sin plan</span>';
 }
 
 function buildPlanB(){
@@ -1183,52 +1169,45 @@ function buildPlanB(){
   planStatusFilter = 'ALL';
 
   const total = PLANB_ROWS.length;
-  const sum = (arr, f) => arr.reduce((a, x) => a + f(x), 0);
-  const units = sum(PLANB_ROWS, x => x.t.cant);
-  const valor = sum(PLANB_ROWS, x => x.t.total);
   const cumple = PLANB_ROWS.filter(x => x.c.status === 'CUMPLE');
   const noCumple = PLANB_ROWS.filter(x => x.c.status === 'NO_CUMPLE');
   const noPlan = PLANB_ROWS.filter(x => x.c.status === 'NO_PLAN');
-  const uCumple = sum(cumple, x => x.t.cant);
   const pctR = total ? (cumple.length / total * 100).toFixed(1) : '0.0';
-  const pctU = units ? (uCumple / units * 100).toFixed(1) : '0.0';
 
-  const planSrc = DATA.plan ? 'archivo ' + escapeHtml(DATA.plan.fileName) : 'Plan B de julio 2026 (incluido en la app)';
+  const planSrc = DATA.plan ? escapeHtml(DATA.plan.fileName) : 'Plan B de julio 2026 (incluido en la app)';
   document.getElementById('planNote').innerHTML =
-    `Plan usado: <b>${planSrc}</b> · ${planList().length} ciudades. Informe de Transprensa: <b>${escapeHtml(DATA.transprensa.fileName)}</b>.<br>` +
-    `Regla del Plan B: cada ciudad va con una sola transportadora. Transprensa solo debería llevar las ciudades que el plan le asigna; cualquier otra es un desvío. ` +
-    `Sube un archivo de plan nuevo (hoja "Plan B - Ciudades") para actualizarlo.`;
+    `<b>Se envió con</b>: la transportadora del informe cargado (${carrierTagLg('Transprensa')}). ` +
+    `<b>Debía ir con</b>: la que asigna el Plan B para ese destino.<br>` +
+    `<span class="muted">Plan: ${planSrc} · Informe: ${escapeHtml(DATA.transprensa.fileName)}</span>`;
 
   document.getElementById('planKpis').innerHTML = `
-    <div class="kpi"><div class="n">${total}</div><div class="l">Remesas Transprensa</div></div>
+    <div class="kpi"><div class="n">${total}</div><div class="l">Remesas en Transprensa</div></div>
     <div class="kpi"><div class="n" style="color:var(--teal)">${cumple.length}</div><div class="l">Cumplen el plan (${pctR}%)</div></div>
     <div class="kpi"><div class="n" style="color:var(--red)">${noCumple.length}</div><div class="l">No cumplen el plan</div></div>
-    <div class="kpi"><div class="n" style="color:var(--amber)">${noPlan.length}</div><div class="l">Destino no está en el plan</div></div>
-    <div class="kpi"><div class="n">${uCumple} de ${units}</div><div class="l">Unidades que cumplen (${pctU}%)</div></div>
-    <div class="kpi"><div class="n">$${Math.round(valor).toLocaleString('es-CO')}</div><div class="l">Valor total Transprensa</div></div>
+    <div class="kpi"><div class="n" style="color:var(--amber)">${noPlan.length}</div><div class="l">Destino sin plan</div></div>
   `;
 
   // resumen por destino
   const byCity = new Map();
   PLANB_ROWS.forEach(({t, c}) => {
     const k = normCity(t.destino);
-    if(!byCity.has(k)) byCity.set(k, {destino:t.destino, rem:0, units:0, valor:0, c});
-    const g = byCity.get(k); g.rem++; g.units += t.cant; g.valor += t.total;
+    if(!byCity.has(k)) byCity.set(k, {destino:t.destino, rem:0, units:0, c});
+    const g = byCity.get(k); g.rem++; g.units += t.cant;
   });
   const order = {NO_CUMPLE:0, NO_PLAN:1, CUMPLE:2};
   const cities = [...byCity.values()].sort((a, b) => (order[a.c.status] - order[b.c.status]) || (b.units - a.units));
-  document.getElementById('planCityBody').innerHTML = cities.map(g => `<tr>
+  document.getElementById('planCityBody').innerHTML = cities.map(g => `<tr class="${g.c.status === 'NO_CUMPLE' ? 'row-bad' : ''}">
     <td><b>${escapeHtml(g.destino)}</b></td>
     <td>${g.rem}</td>
     <td>${g.units}</td>
-    <td><span class="money">${fmtMoney(g.valor)}</span></td>
-    <td>${planCell(g.c)}</td>
+    <td>${carrierTagLg('Transprensa')}</td>
+    <td>${expectedCell(g.c)}</td>
     <td>${statusPill(g.c)}</td>
   </tr>`).join('');
 
   // pestañas del detalle
   const tabsEl = document.getElementById('planTabs');
-  const tabDefs = [['ALL', 'Todas', total], ['NO_CUMPLE', 'No cumple', noCumple.length], ['NO_PLAN', 'No está en el plan', noPlan.length], ['CUMPLE', 'Cumple', cumple.length]];
+  const tabDefs = [['ALL', 'Todas', total], ['NO_CUMPLE', 'No cumple', noCumple.length], ['NO_PLAN', 'Sin plan', noPlan.length], ['CUMPLE', 'Cumple', cumple.length]];
   tabsEl.innerHTML = tabDefs.map(([k, label, n]) => `<div class="tab ${k === 'ALL' ? 'active' : ''}" data-status="${k}">${label} <span class="count">${n}</span></div>`).join('');
   tabsEl.querySelectorAll('.tab').forEach(el => el.addEventListener('click', () => {
     planStatusFilter = el.getAttribute('data-status');
@@ -1242,21 +1221,16 @@ function buildPlanB(){
 
 function renderPlanDetail(){
   const list = PLANB_ROWS.filter(x => planStatusFilter === 'ALL' || x.c.status === planStatusFilter);
-  document.getElementById('planDetailBody').innerHTML = list.map(({t, c}) => {
-    const real = t.cant > 0 ? t.total / t.cant : null;
-    return `<tr>
+  document.getElementById('planDetailBody').innerHTML = list.map(({t, c}) => `<tr class="${c.status === 'NO_CUMPLE' ? 'row-bad' : ''}">
       <td class="code">${escapeHtml(t.remesa)}</td>
       <td>${fmtDate(t.fecha)}</td>
       <td><div class="route"><span class="o">${escapeHtml(t.origen || '—')}</span><span class="d">→ ${escapeHtml(t.destino)}</span></div></td>
       <td>${escapeHtml(t.destinatario || '—')}</td>
       <td>${t.cant}</td>
-      <td><span class="money">${fmtMoney(t.total)}</span></td>
-      <td><span class="money">${fmtMoney(real)}</span></td>
-      <td>${planCell(c)}</td>
-      <td><span class="money">${fmtMoney(planTarifa(c.plan))}</span></td>
+      <td>${carrierTagLg('Transprensa')}</td>
+      <td>${expectedCell(c)}</td>
       <td>${statusPill(c)}</td>
-    </tr>`;
-  }).join('');
+    </tr>`).join('');
 }
 </script>
 
