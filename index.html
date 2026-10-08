@@ -247,6 +247,20 @@
   .ctag.sinplan{ background:var(--amber); }
   .ctag.lg{ margin-left:0; padding:4px 10px; font-size:11px; border-radius:4px; }
   tr.row-bad td:first-child{ box-shadow: inset 4px 0 0 var(--red); }
+  .cnt{ display:inline-block; min-width:30px; text-align:center; padding:2px 9px; border-radius:10px; font-weight:700; font-family:var(--mono); font-size:12px; }
+  .cnt.ok{ background:var(--teal-soft); color:var(--teal); }
+  .cnt.bad{ background:var(--red-soft); color:var(--red); }
+  .cnt.neutral{ background:var(--rule); color:var(--steel); }
+  .date-bar{
+    display:flex; flex-wrap:wrap; align-items:center; gap:14px; background:var(--paper-raised);
+    border:1px solid var(--rule); border-radius:4px; padding:10px 14px; margin-bottom:16px; font-size:12.5px; color:var(--steel);
+  }
+  .date-bar label{ display:flex; align-items:center; gap:6px; font-weight:600; }
+  .date-bar input[type=date]{ padding:7px 8px; border:1px solid var(--rule); border-radius:4px; background:var(--paper-raised); font-size:12.5px; }
+  .date-bar .hint{ color:var(--steel-dim); font-size:11.5px; margin-left:auto; }
+  .plan-filters{ display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:14px; }
+  .plan-filters .tabs{ margin:0; padding:0; border:none; }
+  .plan-filters select{ padding:8px 10px; border:1px solid var(--rule); border-radius:4px; background:var(--paper-raised); font-size:13px; }
 
   /* ---- Archivos cargados ---- */
   .loaded-files{ display:flex; flex-wrap:wrap; gap:8px; justify-content:center; margin-top:14px; }
@@ -388,12 +402,35 @@
 
     <div id="viewPlanB" style="display:none;">
       <div id="planBEmpty" class="empty-state">
-        <b>Aún no hay informe de Transprensa cargado.</b><br>
-        Sube el informe de remesas de Transprensa junto a los otros archivos para controlar el cumplimiento del Plan B.
+        <b>Aún no hay archivos cargados.</b><br>
+        Sube los informes de Coordinadora, Envía y Transprensa para controlar el cumplimiento del Plan B.
       </div>
       <div id="planBContent" style="display:none;">
         <div class="plan-note" id="planNote"></div>
+        <div class="date-bar">
+          <label>Desde <input type="date" id="planDesde"></label>
+          <label>Hasta <input type="date" id="planHasta"></label>
+          <span class="reset" id="planFechaReset">Quitar fechas</span>
+          <span class="hint" id="planFechaHint"></span>
+        </div>
         <div class="kpi-grid" id="planKpis"></div>
+
+        <h3 class="section-title">Cumplimiento por transportadora</h3>
+        <div class="table-scroll">
+          <table id="planCarrierTable">
+            <thead>
+              <tr>
+                <th>Se envió con</th>
+                <th>Envíos</th>
+                <th>Cumplen</th>
+                <th>No cumplen</th>
+                <th>Sin plan</th>
+                <th>% cumple</th>
+              </tr>
+            </thead>
+            <tbody id="planCarrierBody"></tbody>
+          </table>
+        </div>
 
         <h3 class="section-title">Cumplimiento por destino</h3>
         <div class="table-scroll">
@@ -401,10 +438,10 @@
             <thead>
               <tr>
                 <th>Destino</th>
-                <th>Remesas</th>
-                <th>Unidades</th>
-                <th>Se envió con</th>
                 <th>Debía ir con (Plan B)</th>
+                <th>Envíos con Coordinadora</th>
+                <th>Envíos con Envía</th>
+                <th>Envíos con Transprensa</th>
                 <th>Control</th>
               </tr>
             </thead>
@@ -412,13 +449,16 @@
           </table>
         </div>
 
-        <h3 class="section-title">Detalle de remesas</h3>
-        <div class="tabs" id="planTabs"></div>
+        <h3 class="section-title">Detalle de envíos</h3>
+        <div class="plan-filters">
+          <div class="tabs" id="planTabs"></div>
+          <select id="planCarrierFilter"><option value="">Todas las transportadoras</option></select>
+        </div>
         <div class="table-scroll">
           <table id="planDetailTable">
             <thead>
               <tr>
-                <th>Remesa</th>
+                <th>Código</th>
                 <th>Fecha</th>
                 <th>Ruta</th>
                 <th>Destinatario</th>
@@ -431,6 +471,7 @@
             <tbody id="planDetailBody"></tbody>
           </table>
         </div>
+        <div id="planDetailEmpty" class="empty-state" style="display:none;">No hay envíos con este filtro.</div>
       </div>
     </div>
 
@@ -548,6 +589,7 @@ function normalizeEnvia(row, guiaKey){
     'Dias transcurridos': tieneFecha ? row['Dias_Entrega'] : null, // solo si ya se entregó, evita plazos engañosos en tránsito
     'Dias ofrecidos': row['Dias_Prometidos'],
     'Eficiencia': eficiencia,
+    'Unidades': row['Num_Unidades'],
     'Peso': row['PesoReal'],
     'Flete Total': row['Total'],
     'Novedad': novedad,
@@ -1113,7 +1155,7 @@ function renderTable(){
 let PLANB_ROWS = [];
 
 function normCity(s){
-  return String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/\s+/g, ' ').trim();
+  return String(s || '').replace(/\s*\([^)]*\)\s*/g, ' ').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/\s+/g, ' ').trim();
 }
 
 function planList(){ return DATA.plan ? DATA.plan.ciudades : DEFAULT_PLAN; }
@@ -1127,10 +1169,10 @@ function planMap(){
   return m;
 }
 
-function classifyRemesa(t, map){
-  const p = map.get(normCity(t.destino));
+function classifyItem(item, map){
+  const p = map.get(normCity(item.destino));
   if(!p) return {status:'NO_PLAN', plan:null};
-  return {status: normCity(p.carrier) === 'TRANSPRENSA' ? 'CUMPLE' : 'NO_CUMPLE', plan:p};
+  return {status: normCity(p.carrier) === normCity(item.carrier) ? 'CUMPLE' : 'NO_CUMPLE', plan:p};
 }
 
 function carrierKey(name){
@@ -1154,83 +1196,178 @@ function statusPill(c){
   return '<span class="pill warn">Sin plan</span>';
 }
 
+// Todos los envíos cargados (Coordinadora, Envía y Transprensa), con la transportadora con la que salieron
+function planBItems(){
+  const items = [];
+  const num = v => { const x = Number(v); return (isFinite(x) && x > 0) ? x : 1; };
+  if(DATA.coordinadora) DATA.coordinadora.rows.forEach(r => items.push({carrier:'Coordinadora', code:r['Codigo remision'], fecha:r['Fecha recogida'], origen:r['Ciudad origen'], destino:r['Destino'], destinatario:r['Nombre destinatario'], unid:num(r['Unidades'])}));
+  if(DATA.envia) DATA.envia.rows.forEach(r => items.push({carrier:'Envía', code:r['Codigo remision'], fecha:r['Fecha recogida'], origen:r['Ciudad origen'], destino:r['Destino'], destinatario:r['Nombre destinatario'], unid:num(r['Unidades'])}));
+  if(DATA.transprensa) DATA.transprensa.rows.forEach(t => items.push({carrier:'Transprensa', code:t.remesa, fecha:t.fecha, origen:t.origen, destino:t.destino, destinatario:t.destinatario, unid:num(t.cant)}));
+  return items.filter(it => it.destino);
+}
+
+// celda con la cantidad de envíos de una transportadora a un destino:
+// verde = es la que asigna el plan, rojo = otra transportadora
+function cntCell(n, colKey, planKey){
+  if(!n) return '<span class="muted">—</span>';
+  const cls = planKey === null ? 'neutral' : (colKey === planKey ? 'ok' : 'bad');
+  return `<span class="cnt ${cls}">${n}</span>`;
+}
+
+let PLANB_ALL = [];
+
+// Fecha como 'AAAA-MM-DD' (igual que la que muestra la tabla), para compararla con los campos de fecha
+function dateKey(v){
+  let d = null;
+  if(v instanceof Date) d = v;
+  else if(v){ const p = String(v).split('/'); if(p.length === 3) d = new Date(p[2], p[1] - 1, p[0]); }
+  if(!d || isNaN(d)) return null;
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
+function fmtKey(k){
+  if(!k) return '';
+  const [y, m, d] = k.split('-').map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString('es-CO', {day:'2-digit', month:'short', year:'numeric'});
+}
+
+// Carga los envíos de los archivos y los clasifica contra el plan; luego pinta
 function buildPlanB(){
   const emptyEl = document.getElementById('planBEmpty');
   const contentEl = document.getElementById('planBContent');
-  if(!DATA.transprensa){
+  const items = planBItems();
+  if(!items.length){
     emptyEl.style.display = 'block'; contentEl.style.display = 'none';
-    PLANB_ROWS = [];
+    PLANB_ALL = []; PLANB_ROWS = [];
     return;
   }
   emptyEl.style.display = 'none'; contentEl.style.display = 'block';
 
   const map = planMap();
-  PLANB_ROWS = DATA.transprensa.rows.map(t => ({t, c: classifyRemesa(t, map)}));
-  planStatusFilter = 'ALL';
+  PLANB_ALL = items.map(t => ({t, c: classifyItem(t, map), k: dateKey(t.fecha)}));
+
+  // límites de los campos de fecha según lo que traen los archivos
+  const keys = PLANB_ALL.map(x => x.k).filter(Boolean).sort();
+  const dMin = keys[0] || '', dMax = keys[keys.length - 1] || '';
+  const desde = document.getElementById('planDesde'), hasta = document.getElementById('planHasta');
+  desde.min = hasta.min = dMin; desde.max = hasta.max = dMax;
+  document.getElementById('planFechaHint').textContent = dMin ? 'Fechas en los archivos: ' + fmtKey(dMin) + ' a ' + fmtKey(dMax) : '';
+  bindOnce(desde, 'change', renderPlanB);
+  bindOnce(hasta, 'change', renderPlanB);
+  bindOnce(document.getElementById('planFechaReset'), 'click', () => {
+    document.getElementById('planDesde').value = '';
+    document.getElementById('planHasta').value = '';
+    renderPlanB();
+  });
+
+  planStatusFilter = PLANB_ALL.some(x => x.c.status === 'NO_CUMPLE') ? 'NO_CUMPLE' : 'ALL';
+  renderPlanB();
+}
+
+// Pinta todo el Control Plan B con los envíos que caen dentro del rango de fechas elegido
+function renderPlanB(){
+  const desde = document.getElementById('planDesde').value;
+  const hasta = document.getElementById('planHasta').value;
+  const filtering = !!(desde || hasta);
+  let sinFecha = 0;
+  PLANB_ROWS = PLANB_ALL.filter(x => {
+    if(!filtering) return true;
+    if(!x.k){ sinFecha++; return false; }
+    if(desde && x.k < desde) return false;
+    if(hasta && x.k > hasta) return false;
+    return true;
+  });
 
   const total = PLANB_ROWS.length;
   const cumple = PLANB_ROWS.filter(x => x.c.status === 'CUMPLE');
   const noCumple = PLANB_ROWS.filter(x => x.c.status === 'NO_CUMPLE');
   const noPlan = PLANB_ROWS.filter(x => x.c.status === 'NO_PLAN');
-  const pctR = total ? (cumple.length / total * 100).toFixed(1) : '0.0';
+  const pct = (n, d) => d ? (n / d * 100).toFixed(1) : '0.0';
 
+  const carriers = ['Coordinadora', 'Envía', 'Transprensa'].filter(c => PLANB_ROWS.some(x => x.t.carrier === c));
   const planSrc = DATA.plan ? escapeHtml(DATA.plan.fileName) : 'Plan B de julio 2026 (incluido en la app)';
+  const rango = filtering ? ' · Rango: ' + (desde ? 'desde ' + fmtKey(desde) : '') + (desde && hasta ? ' ' : '') + (hasta ? 'hasta ' + fmtKey(hasta) : '') +
+    (sinFecha ? ' (' + sinFecha + ' envíos sin fecha no se incluyen)' : '') : '';
   document.getElementById('planNote').innerHTML =
-    `<b>Se envió con</b>: la transportadora del informe cargado (${carrierTagLg('Transprensa')}). ` +
-    `<b>Debía ir con</b>: la que asigna el Plan B para ese destino.<br>` +
-    `<span class="muted">Plan: ${planSrc} · Informe: ${escapeHtml(DATA.transprensa.fileName)}</span>`;
+    `<b>Se envió con</b>: la transportadora del archivo de donde sale el envío. <b>Debía ir con</b>: la que asigna el Plan B a ese destino.<br>` +
+    `<span class="muted">Plan: ${planSrc} · Revisados: ${carriers.length ? carriers.map(c => c + ' (' + PLANB_ROWS.filter(x => x.t.carrier === c).length + ')').join(', ') : 'ninguno en este rango'}${rango}</span>`;
 
   document.getElementById('planKpis').innerHTML = `
-    <div class="kpi"><div class="n">${total}</div><div class="l">Remesas en Transprensa</div></div>
-    <div class="kpi"><div class="n" style="color:var(--teal)">${cumple.length}</div><div class="l">Cumplen el plan (${pctR}%)</div></div>
+    <div class="kpi"><div class="n">${total}</div><div class="l">Envíos revisados</div></div>
+    <div class="kpi"><div class="n" style="color:var(--teal)">${cumple.length}</div><div class="l">Cumplen el plan (${pct(cumple.length, total)}%)</div></div>
     <div class="kpi"><div class="n" style="color:var(--red)">${noCumple.length}</div><div class="l">No cumplen el plan</div></div>
     <div class="kpi"><div class="n" style="color:var(--amber)">${noPlan.length}</div><div class="l">Destino sin plan</div></div>
   `;
 
-  // resumen por destino
+  // por transportadora
+  document.getElementById('planCarrierBody').innerHTML = carriers.map(c => {
+    const rows = PLANB_ROWS.filter(x => x.t.carrier === c);
+    const cu = rows.filter(x => x.c.status === 'CUMPLE').length;
+    const nc = rows.filter(x => x.c.status === 'NO_CUMPLE').length;
+    const np = rows.filter(x => x.c.status === 'NO_PLAN').length;
+    return `<tr><td>${carrierTagLg(c)}</td><td>${rows.length}</td><td>${cu}</td><td>${nc}</td><td>${np}</td><td><b>${pct(cu, rows.length)}%</b></td></tr>`;
+  }).join('');
+
+  // por destino
   const byCity = new Map();
   PLANB_ROWS.forEach(({t, c}) => {
     const k = normCity(t.destino);
-    if(!byCity.has(k)) byCity.set(k, {destino:t.destino, rem:0, units:0, c});
-    const g = byCity.get(k); g.rem++; g.units += t.cant;
+    if(!byCity.has(k)) byCity.set(k, {destino:t.destino, plan:c.plan, n:{coordinadora:0, envia:0, transprensa:0}, total:0, bad:0});
+    const g = byCity.get(k);
+    g.n[carrierKey(t.carrier)]++; g.total++;
+    if(c.status === 'NO_CUMPLE') g.bad++;
   });
+  const cityStatus = g => !g.plan ? 'NO_PLAN' : (g.bad > 0 ? 'NO_CUMPLE' : 'CUMPLE');
   const order = {NO_CUMPLE:0, NO_PLAN:1, CUMPLE:2};
-  const cities = [...byCity.values()].sort((a, b) => (order[a.c.status] - order[b.c.status]) || (b.units - a.units));
-  document.getElementById('planCityBody').innerHTML = cities.map(g => `<tr class="${g.c.status === 'NO_CUMPLE' ? 'row-bad' : ''}">
-    <td><b>${escapeHtml(g.destino)}</b></td>
-    <td>${g.rem}</td>
-    <td>${g.units}</td>
-    <td>${carrierTagLg('Transprensa')}</td>
-    <td>${expectedCell(g.c)}</td>
-    <td>${statusPill(g.c)}</td>
-  </tr>`).join('');
+  const cities = [...byCity.values()].sort((a, b) => (order[cityStatus(a)] - order[cityStatus(b)]) || (b.bad - a.bad) || (b.total - a.total));
+  document.getElementById('planCityBody').innerHTML = cities.map(g => {
+    const st = cityStatus(g);
+    const pk = g.plan ? carrierKey(g.plan.carrier) : null;
+    const sub = st === 'NO_CUMPLE' ? `<span class="plan-sub">${g.bad} de ${g.total} envíos</span>` : '';
+    return `<tr class="${st === 'NO_CUMPLE' ? 'row-bad' : ''}">
+      <td><b>${escapeHtml(g.destino)}</b></td>
+      <td>${expectedCell({plan:g.plan})}</td>
+      <td>${cntCell(g.n.coordinadora, 'coordinadora', pk)}</td>
+      <td>${cntCell(g.n.envia, 'envia', pk)}</td>
+      <td>${cntCell(g.n.transprensa, 'transprensa', pk)}</td>
+      <td>${statusPill({status:st})}${sub}</td>
+    </tr>`;
+  }).join('');
 
-  // pestañas del detalle
+  // filtros del detalle (se conserva lo que el usuario ya eligió)
   const tabsEl = document.getElementById('planTabs');
-  const tabDefs = [['ALL', 'Todas', total], ['NO_CUMPLE', 'No cumple', noCumple.length], ['NO_PLAN', 'Sin plan', noPlan.length], ['CUMPLE', 'Cumple', cumple.length]];
-  tabsEl.innerHTML = tabDefs.map(([k, label, n]) => `<div class="tab ${k === 'ALL' ? 'active' : ''}" data-status="${k}">${label} <span class="count">${n}</span></div>`).join('');
+  const tabDefs = [['ALL', 'Todos', total], ['NO_CUMPLE', 'No cumple', noCumple.length], ['NO_PLAN', 'Sin plan', noPlan.length], ['CUMPLE', 'Cumple', cumple.length]];
+  tabsEl.innerHTML = tabDefs.map(([k, label, n]) => `<div class="tab ${k === planStatusFilter ? 'active' : ''}" data-status="${k}">${label} <span class="count">${n}</span></div>`).join('');
   tabsEl.querySelectorAll('.tab').forEach(el => el.addEventListener('click', () => {
     planStatusFilter = el.getAttribute('data-status');
     tabsEl.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
     el.classList.add('active');
     renderPlanDetail();
   }));
+  const sel = document.getElementById('planCarrierFilter');
+  const prev = sel.value;
+  sel.innerHTML = '<option value="">Todas las transportadoras</option>' + carriers.map(c => `<option value="${escapeAttr(c)}">${escapeHtml(c)}</option>`).join('');
+  sel.value = carriers.includes(prev) ? prev : '';
+  bindOnce(sel, 'change', renderPlanDetail);
 
   renderPlanDetail();
 }
 
 function renderPlanDetail(){
-  const list = PLANB_ROWS.filter(x => planStatusFilter === 'ALL' || x.c.status === planStatusFilter);
+  const cv = document.getElementById('planCarrierFilter').value;
+  const list = PLANB_ROWS.filter(x => (planStatusFilter === 'ALL' || x.c.status === planStatusFilter) && (!cv || x.t.carrier === cv));
   document.getElementById('planDetailBody').innerHTML = list.map(({t, c}) => `<tr class="${c.status === 'NO_CUMPLE' ? 'row-bad' : ''}">
-      <td class="code">${escapeHtml(t.remesa)}</td>
+      <td class="code">${escapeHtml(t.code || '—')}</td>
       <td>${fmtDate(t.fecha)}</td>
       <td><div class="route"><span class="o">${escapeHtml(t.origen || '—')}</span><span class="d">→ ${escapeHtml(t.destino)}</span></div></td>
       <td>${escapeHtml(t.destinatario || '—')}</td>
-      <td>${t.cant}</td>
-      <td>${carrierTagLg('Transprensa')}</td>
+      <td>${t.unid}</td>
+      <td>${carrierTagLg(t.carrier)}</td>
       <td>${expectedCell(c)}</td>
       <td>${statusPill(c)}</td>
     </tr>`).join('');
+  document.getElementById('planDetailEmpty').style.display = list.length ? 'none' : 'block';
+  document.getElementById('planDetailTable').style.display = list.length ? 'table' : 'none';
 }
 </script>
 
