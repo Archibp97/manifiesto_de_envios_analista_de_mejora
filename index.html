@@ -219,6 +219,59 @@
     .chart-grid{ grid-template-columns:1fr; }
   }
 
+  /* ---- Selector de transportadora (cuando hay Coordinadora + Envía) ---- */
+  .carrier-select{ display:flex; justify-content:center; flex-wrap:wrap; gap:10px; margin:0 auto 20px; }
+  .carrier-opt{
+    display:flex; align-items:center; gap:10px; padding:12px 20px; border-radius:6px; border:2px solid;
+    font-family:var(--mono); font-size:15px; font-weight:800; letter-spacing:0.5px; text-transform:uppercase;
+    cursor:pointer; background:#fff; user-select:none;
+  }
+  .carrier-opt .dot{ width:11px; height:11px; border-radius:50%; }
+  .carrier-opt.all{ color:var(--ink); border-color:var(--ink); }
+  .carrier-opt.all .dot{ background:linear-gradient(90deg,#0b4a8f 50%,var(--red) 50%); }
+  .carrier-opt.all.active{ background:var(--ink); color:#fff; }
+  .carrier-opt.coordinadora{ color:#0b4a8f; border-color:#0b4a8f; }
+  .carrier-opt.coordinadora .dot{ background:#0b4a8f; }
+  .carrier-opt.coordinadora.active{ background:#0b4a8f; color:#fff; }
+  .carrier-opt.coordinadora.active .dot{ background:#fff; }
+  .carrier-opt.envia{ color:var(--red); border-color:var(--red); }
+  .carrier-opt.envia .dot{ background:var(--red); }
+  .carrier-opt.envia.active{ background:var(--red); color:#fff; }
+  .carrier-opt.envia.active .dot{ background:#fff; }
+
+  /* etiqueta pequeña de transportadora dentro de la tabla (solo cuando hay dos transportadoras cargadas) */
+  .ctag{ display:inline-block; margin-left:6px; padding:1px 6px; border-radius:3px; font-size:9.5px; font-weight:700; letter-spacing:0.3px; color:#fff; vertical-align:middle; }
+  .ctag.coordinadora{ background:#0b4a8f; }
+  .ctag.envia{ background:var(--red); }
+
+  /* ---- Archivos cargados ---- */
+  .loaded-files{ display:flex; flex-wrap:wrap; gap:8px; justify-content:center; margin-top:14px; }
+  .lf-chip{
+    display:inline-flex; align-items:center; gap:8px; padding:6px 10px; border-radius:14px; border:1px solid var(--rule);
+    background:var(--paper); font-size:12px; color:var(--ink); cursor:default;
+  }
+  .lf-chip b{ font-family:var(--mono); font-size:11px; text-transform:uppercase; letter-spacing:0.3px; }
+  .lf-chip.coordinadora{ border-color:#0b4a8f; } .lf-chip.coordinadora b{ color:#0b4a8f; }
+  .lf-chip.envia{ border-color:var(--red); } .lf-chip.envia b{ color:var(--red); }
+  .lf-chip.transprensa{ border-color:var(--teal); } .lf-chip.transprensa b{ color:var(--teal); }
+  .lf-chip.plan{ border-color:var(--amber); } .lf-chip.plan b{ color:var(--amber); }
+  .lf-chip .lf-meta{ color:var(--steel-dim); max-width:260px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .lf-x{ cursor:pointer; color:var(--steel-dim); font-weight:700; padding:0 2px; }
+  .lf-x:hover{ color:var(--red); }
+
+  /* ---- Control Plan B ---- */
+  .plan-note{
+    background:var(--paper-raised); border:1px solid var(--rule); border-left:4px solid var(--teal);
+    border-radius:4px; padding:12px 16px; font-size:12.5px; color:var(--steel); margin-bottom:16px; line-height:1.5;
+  }
+  .section-title{
+    margin:22px 0 10px; font-size:12.5px; text-transform:uppercase; letter-spacing:0.4px; color:var(--steel);
+    border-bottom:1px solid var(--rule); padding-bottom:6px;
+  }
+  .table-note{ font-size:11.5px; color:var(--steel-dim); margin-top:8px; line-height:1.5; }
+  .plan-sub{ display:block; font-size:10.5px; color:var(--steel-dim); margin-top:2px; }
+  .num{ font-family:var(--mono); text-align:right; display:block; }
+
   footer{ text-align:center; font-family:var(--mono); font-size:10.5px; color:var(--steel-dim); padding:30px 0 10px; }
 
   @media (max-width: 640px){
@@ -242,23 +295,26 @@
 <div class="wrap">
 
   <div class="upload-zone" id="uploadZone">
-    <h2>Arrastra tu archivo Excel aquí</h2>
-    <p>O haz clic para seleccionar el informe de negocio (.xlsx)</p>
-    <span class="upload-btn">Seleccionar archivo</span>
+    <h2>Arrastra tus archivos Excel aquí</h2>
+    <p>Puedes subir Coordinadora, Envía y Transprensa a la vez (.xlsx o .xls)</p>
+    <span class="upload-btn">Seleccionar archivos</span>
     <div class="upload-hint">Se procesa localmente en tu navegador — no se envía a ningún servidor</div>
     <div class="upload-error" id="uploadError"></div>
-    <input type="file" id="fileInput" accept=".xlsx,.xls">
+    <input type="file" id="fileInput" accept=".xlsx,.xls" multiple>
   </div>
 
-  <div id="app" style="display:none;">
+  <div class="loaded-files" id="loadedFiles"></div>
 
-    <div class="carrier-badge" id="carrierBadge"><span class="dot"></span><span id="carrierBadgeText"></span></div>
+  <div id="app" style="display:none; margin-top:20px;">
+
+    <div id="carrierBar"></div>
 
     <div class="summary" id="summary"></div>
 
     <div class="view-switch">
       <div class="view-btn active" id="btnViewManifiesto">Manifiesto</div>
       <div class="view-btn" id="btnViewAnalytics">Análisis estadístico</div>
+      <div class="view-btn" id="btnViewPlanB">Control Plan B</div>
     </div>
 
     <div id="viewManifiesto">
@@ -328,6 +384,60 @@
       </div>
     </div>
 
+    <div id="viewPlanB" style="display:none;">
+      <div id="planBEmpty" class="empty-state">
+        <b>Aún no hay informe de Transprensa cargado.</b><br>
+        Sube el informe de remesas de Transprensa junto a los otros archivos para controlar el cumplimiento del Plan B.
+      </div>
+      <div id="planBContent" style="display:none;">
+        <div class="plan-note" id="planNote"></div>
+        <div class="kpi-grid" id="planKpis"></div>
+
+        <h3 class="section-title">Cumplimiento por destino</h3>
+        <div class="table-scroll">
+          <table id="planCityTable">
+            <thead>
+              <tr>
+                <th>Destino</th>
+                <th>Remesas</th>
+                <th>Unidades</th>
+                <th>Valor total</th>
+                <th>Plan B asigna</th>
+                <th>Control</th>
+              </tr>
+            </thead>
+            <tbody id="planCityBody"></tbody>
+          </table>
+        </div>
+
+        <h3 class="section-title">Detalle de remesas</h3>
+        <div class="tabs" id="planTabs"></div>
+        <div class="table-scroll">
+          <table id="planDetailTable">
+            <thead>
+              <tr>
+                <th>Remesa</th>
+                <th>Fecha</th>
+                <th>Ruta</th>
+                <th>Destinatario</th>
+                <th>Unid.</th>
+                <th>Valor total</th>
+                <th>Tarifa/u real</th>
+                <th>Plan B asigna</th>
+                <th>Tarifa/u plan</th>
+                <th>Control</th>
+              </tr>
+            </thead>
+            <tbody id="planDetailBody"></tbody>
+          </table>
+        </div>
+        <div class="table-note">
+          Tarifa/u real = valor total de la remesa ÷ unidades (lo que cobró Transprensa). Tarifa/u plan = tarifa unitaria de la transportadora que asigna el Plan B;
+          en Coordinadora es la tarifa plena, antes del descuento de 18% a 21% por volumen.
+        </div>
+      </div>
+    </div>
+
   </div>
 
 </div>
@@ -339,7 +449,15 @@ let RAW = [];
 let currentEstado = 'ALL';
 let currentCategory = 'ALL'; // ALL | ENTREGADAS | EN_PROCESO | INCIDENCIA
 let onlyNovedad = false;
-let currentCarrier = null; // 'coordinadora' | 'envia'
+// --- Archivos cargados (uno por tipo; si subes otro del mismo tipo, lo reemplaza) ---
+const DATA = { coordinadora:null, envia:null, transprensa:null, plan:null }; // cada uno: { rows|ciudades, fileName }
+let carrierFilter = 'ALL';   // ALL | coordinadora | envia (solo aplica cuando hay ambas cargadas)
+let currentView = 'manifiesto'; // manifiesto | analytics | planb
+let planStatusFilter = 'ALL';   // ALL | CUMPLE | NO_CUMPLE | NO_PLAN
+
+// Plan B de julio 2026 (incluido por defecto). Formato: [ciudad, transportadora, razón, tarifa Envía, tarifa Coordinadora, tarifa Transprensa]
+// Si subes un archivo de plan nuevo (hoja "Plan B - Ciudades"), reemplaza a este.
+const DEFAULT_PLAN = [["Bucaramanga","Coordinadora","Más económica",30865.0,37560.18,null],["Cúcuta","Coordinadora","Más económica",36640.0,44007.18,null],["Cartagena","Coordinadora","Obligatoria",31105.0,44007.18,null],["Popayán","Coordinadora","Más económica",33130.0,28845.18,null],["Ocaña","Coordinadora","Más económica",46480.0,56943.18,null],["Tunja","Coordinadora","Más económica",37150.0,44007.18,null],["Floridablanca","Coordinadora","Más económica",30865.0,37560.18,null],["Manizales","Coordinadora","Colchón descuento Coord.",12940.0,16140.18,12490.0],["Cartago","Coordinadora","Colchón descuento Coord.",12655.0,16203.18,null],["Dosquebradas","Coordinadora","Colchón descuento Coord.",12700.0,16140.18,null],["Pasto","Coordinadora","Más económica",37150.0,44007.18,null],["Barrancabermeja","Coordinadora","Más económica",46480.0,56943.18,null],["Piedecuesta","Coordinadora","Más económica",30865.0,37560.18,null],["Montería","Coordinadora","Obligatoria",41935.0,56943.18,null],["Duitama","Coordinadora","Más económica",35770.0,44007.18,null],["San Gil","Coordinadora","Más económica",46480.0,56943.18,null],["Sincelejo","Coordinadora","Obligatoria",38725.0,56943.18,null],["Caldas","Coordinadora","Colchón descuento Coord.",17995.0,24246.18,null],["Girón","Coordinadora","Más económica",30865.0,37560.18,null],["Sogamoso","Coordinadora","Más económica",41935.0,44007.18,null],["Aguachica","Coordinadora","Más económica",46480.0,56943.18,null],["Arauca","Coordinadora","Más económica",55000.0,69312.18,null],["Valledupar","Coordinadora","Más económica",40570.0,44007.18,null],["Cajicá","Coordinadora","Más económica",21535.0,24246.18,null],["Jamundí","Coordinadora","Colchón descuento Coord.",17995.0,24246.18,null],["La Estrella","Coordinadora","Colchón descuento Coord.",17995.0,24246.18,null],["Santa Marta","Coordinadora","Más económica",39850.0,44007.18,null],["Villamaría","Coordinadora","Más económica",12940.0,16140.18,null],["Pamplona","Coordinadora","Más económica",50020.0,56943.18,null],["Socorro","Coordinadora","Más económica",46480.0,56943.18,null],["Mosquera","Coordinadora","Colchón descuento Coord.",17995.0,24246.18,null],["Girardot","Coordinadora","Colchón descuento Coord.",34360.0,44007.18,null],["Tolú","Coordinadora","Obligatoria",43240.0,56943.18,null],["Villavicencio","Coordinadora","Más económica",35560.0,44007.18,null],["Mocoa","Coordinadora","Más económica",55000.0,56943.18,null],["Chía","Coordinadora","Colchón descuento Coord.",17995.0,24246.18,null],["El Santuario","Coordinadora","Más económica",20125.0,24246.18,null],["Tabio","Coordinadora","Más económica",21535.0,24246.18,null],["Santuario","Coordinadora","Más económica",41500.0,4023.18,null],["Albania","Coordinadora","Más económica",46480.0,4023.18,null],["Chinchiná","Coordinadora","Más económica",12940.0,16140.18,null],["Sabaneta","Coordinadora","Colchón descuento Coord.",17995.0,24246.18,null],["San Carlos","Coordinadora","Más económica",55000.0,4023.18,null],["Soacha","Coordinadora","Colchón descuento Coord.",17995.0,24246.18,null],["Villa del Rosario","Coordinadora","Más económica",36640.0,44007.18,null],["Zaragoza","Coordinadora","Más económica",12700.0,4023.18,null],["Bello","Coordinadora","Colchón descuento Coord.",17995.0,24246.18,null],["Cucutilla","Coordinadora","Más económica",85000.0,4023.18,null],["Puerto Colombia","Coordinadora","Más económica",39850.0,44007.18,null],["Riohacha","Coordinadora","Obligatoria",46480.0,69312.18,null],["Anapoima","Coordinadora","Más económica",55000.0,44007.18,null],["Campoalegre","Coordinadora","Más económica",41935.0,44007.18,null],["Cantagallo","Coordinadora","Más económica",55000.0,4023.18,null],["El Retiro","Coordinadora","Más económica",20125.0,24246.18,null],["Facatativá","Coordinadora","Más económica",21535.0,24246.18,null],["Marinilla","Coordinadora","Más económica",20125.0,24246.18,null],["Matanza","Coordinadora","Más económica",4000.0,4023.18,null],["Rionegro","Coordinadora","Más económica",20125.0,24246.18,null],["Rozo","Coordinadora","Más económica",24985.0,24246.18,null],["Aratoca","Coordinadora","Más económica",55000.0,4023.18,null],["Boyacá","Coordinadora","Más económica",55000.0,4023.18,null],["Itagüí","Coordinadora","Colchón descuento Coord.",17995.0,24246.18,null],["La Mesa","Coordinadora","Más económica",34360.0,24246.18,null],["La Tebaida","Coordinadora","Más económica",13405.0,16140.18,null],["Málaga","Coordinadora","Más económica",55000.0,4023.18,null],["Paipa","Coordinadora","Más económica",41935.0,44007.18,null],["Pensilvania","Coordinadora","Más económica",32500.0,4023.18,null],["Puerto Asís","Coordinadora","Colchón descuento Coord.",55000.0,69312.18,null],["Retiro","Coordinadora","Más económica",20125.0,24246.18,null],["Sopó","Coordinadora","Más económica",21535.0,24246.18,null],["Ubaté","Coordinadora","Más económica",37150.0,44007.18,null],["Bogotá","Envía","Obligatoria",17995.0,24246.18,null],["Cali","Envía","Más económica",17995.0,24246.18,null],["Ibagué","Envía","Más económica",17995.0,24246.18,null],["Barranquilla","Envía","Más económica",29275.0,44007.18,null],["Envigado","Envía","Más económica",17995.0,24246.18,null],["Palmira","Envía","Más económica",17995.0,24246.18,null],["Yopal","Envía","Más económica",38965.0,56943.18,null],["Neiva","Envía","Más económica",27295.0,44007.18,null],["Pitalito","Envía","Más económica",41935.0,56943.18,null],["Yumbo","Envía","Más económica",17995.0,24246.18,null],["Buga","Envía","Más económica",18940.0,24246.18,null],["Moniquirá","Envía","Más económica",41935.0,56943.18,null],["Barbosa","Envía","Más económica",41935.0,56943.18,null],["Ipiales","Envía","Más económica",39850.0,56943.18,null],["Girardota","Envía","Más económica",17995.0,24246.18,null],["Cota","Envía","Más económica",17995.0,24246.18,null],["Garzón","Envía","Más económica",41935.0,56943.18,null],["Funza","Envía","Más económica",17995.0,24246.18,null],["Restrepo","Envía","Más económica",35560.0,69312.18,null],["Caicedonia","Envía","Más económica",19375.0,28845.18,null],["Florencia","Envía","Más económica",36640.0,56943.18,null],["Madrid","Envía","Más económica",17995.0,24246.18,null],["Apartadó","Envía","Más económica",33115.0,44007.18,null],["Tuluá","Envía","Más económica",18940.0,24246.18,null],["La Victoria","Envía","Más económica",18940.0,28845.18,null],["Magangué","Envía","Más económica",43240.0,69312.18,null],["San Juan del Cesar","Envía","Más económica",46480.0,69312.18,null],["Santander de Quilichao","Envía","Más económica",20290.0,28845.18,null],["Turbaco","Envía","Más económica",31045.0,44007.18,null],["Villa de Leyva","Envía","Más económica",37150.0,56943.18,null],["Zipaquirá","Envía","Más económica",21535.0,37560.18,null],["Barichara","Envía","Más económica",46480.0,69312.18,null],["El Cerrito","Envía","Más económica",18940.0,24246.18,null],["Espinal","Envía","Más económica",28270.0,44007.18,null],["Guacarí","Envía","Más económica",18940.0,24246.18,null],["La Calera","Envía","Más económica",21535.0,37560.18,null],["Villa Nueva","Envía","Más económica",38965.0,69312.18,null],["Medellín","Transprensa","Más económica",17995.0,24246.18,13914.0],["Pereira","Transprensa","Más económica",12700.0,16140.18,9242.0],["Armenia","Transprensa","Más económica",13420.0,16140.18,9690.0]];
 let charts = {}; // referencias a instancias Chart.js para poder destruirlas al recargar
 
 function tieneFechaEntregaReal(r){
@@ -370,10 +488,11 @@ uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('drag
 uploadZone.addEventListener('drop', e => {
   e.preventDefault();
   uploadZone.classList.remove('drag');
-  if(e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+  if(e.dataTransfer.files.length) handleFiles(Array.from(e.dataTransfer.files));
 });
 fileInput.addEventListener('change', e => {
-  if(e.target.files.length) handleFile(e.target.files[0]);
+  if(e.target.files.length) handleFiles(Array.from(e.target.files));
+  e.target.value = ''; // permite volver a elegir el mismo archivo
 });
 
 // Busca una columna por nombres candidatos, tolerando comillas/espacios extra en el encabezado
@@ -442,46 +561,190 @@ function normalizeEnvia(row, guiaKey){
   };
 }
 
-function handleFile(file){
+// ---------- Lectores por tipo de archivo ----------
+
+function readFileBuffer(file){
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = e => resolve(e.target.result);
+    reader.onerror = () => reject(new Error('No se pudo leer el archivo.'));
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+// Informe General de Remesa Cliente de Transprensa: es un reporte impreso (títulos, celdas combinadas, fila de totales).
+// Se ubica la fila de encabezados por su texto y se leen las columnas por posición del encabezado.
+function parseTransprensa(aoa){
+  let h = -1, labels = null;
+  for(let i = 0; i < Math.min(aoa.length, 40); i++){
+    const l = (aoa[i] || []).map(c => c == null ? '' : String(c).trim());
+    if(l.includes('Remesa') && l.includes('Destino') && l.includes('Destinatario')){ h = i; labels = l; break; }
+  }
+  if(h < 0) return null;
+  const ix = n => labels.indexOf(n);
+  const I = {remesa:ix('Remesa'), fecha:ix('Fecha'), origen:ix('Origen'), cliente:ix('Cliente'), pago:ix('Forma Pago'),
+            destinatario:ix('Destinatario'), destino:ix('Destino'), factura:ix('Factura'), peso:ix('Peso'), cant:ix('Cant.'),
+            flete:ix('Flete'), manejo:ix('Manejo'), declarado:ix('Declarado'), total:ix('Vlr. Total')};
+  const get = (r, k) => (I[k] >= 0 && r[I[k]] != null) ? r[I[k]] : null;
+  const num = v => { const x = Number(v); return isFinite(x) ? x : 0; };
+  const rows = [];
+  for(let i = h + 1; i < aoa.length; i++){
+    const r = aoa[i]; if(!r) continue;
+    const rem = get(r, 'remesa'); if(rem == null) continue;
+    const remS = String(rem).trim();
+    if(!/^\d{6,}$/.test(remS)) continue;          // salta totales, pies de página y encabezados repetidos
+    const destino = get(r, 'destino'); if(!destino) continue;
+    rows.push({
+      remesa: remS, fecha: get(r, 'fecha'), origen: get(r, 'origen'), cliente: get(r, 'cliente'),
+      destinatario: get(r, 'destinatario'), destino: String(destino).trim(), factura: get(r, 'factura'),
+      peso: num(get(r, 'peso')), cant: num(get(r, 'cant')), flete: num(get(r, 'flete')),
+      manejo: num(get(r, 'manejo')), declarado: num(get(r, 'declarado')), total: num(get(r, 'total'))
+    });
+  }
+  if(!rows.length) throw new Error('El informe de Transprensa no tiene remesas.');
+  return rows;
+}
+
+// Hoja "Plan B - Ciudades" del archivo del plan de transportadoras
+function parsePlanSheet(sheet){
+  const aoa = XLSX.utils.sheet_to_json(sheet, {header:1, raw:true, defval:null});
+  let h = -1;
+  for(let i = 0; i < Math.min(aoa.length, 20); i++){
+    const l = (aoa[i] || []).map(c => c == null ? '' : String(c).trim());
+    if(l.includes('Ciudad') && l.includes('Transportadora')){ h = i; break; }
+  }
+  if(h < 0) return [];
+  const labels = aoa[h].map(c => c == null ? '' : String(c).trim());
+  const iC = labels.indexOf('Ciudad'), iT = labels.indexOf('Transportadora'), iR = labels.indexOf('Razón');
+  const iE = labels.indexOf('Tarifa unit. Envía'), iCo = labels.indexOf('Tarifa unit. Coordinadora'), iTp = labels.indexOf('Tarifa unit. Transprensa');
+  const tarifa = v => { const x = Number(v); return (v != null && isFinite(x) && x > 0) ? x : null; };
+  const out = [];
+  for(let i = h + 1; i < aoa.length; i++){
+    const r = aoa[i]; if(!r) continue;
+    const ciudad = r[iC] == null ? '' : String(r[iC]).trim();
+    const carrier = r[iT] == null ? '' : String(r[iT]).trim();
+    if(!ciudad || ciudad.toUpperCase() === 'TOTAL' || !carrier) continue;
+    out.push([ciudad, carrier, (iR >= 0 && r[iR] != null) ? String(r[iR]).trim() : '',
+              tarifa(iE >= 0 ? r[iE] : null), tarifa(iCo >= 0 ? r[iCo] : null), tarifa(iTp >= 0 ? r[iTp] : null)]);
+  }
+  return out;
+}
+
+// Detecta qué es el archivo por su contenido (no por el nombre): plan, Transprensa, Coordinadora o Envía
+function classifyWorkbook(wb){
+  if(wb.SheetNames.includes('Plan B - Ciudades')){
+    const ciudades = parsePlanSheet(wb.Sheets['Plan B - Ciudades']);
+    if(!ciudades.length) throw new Error('La hoja "Plan B - Ciudades" no tiene ciudades.');
+    return {type:'plan', ciudades};
+  }
+  const sheet = wb.Sheets[wb.SheetNames[0]];
+
+  const aoa = XLSX.utils.sheet_to_json(sheet, {header:1, raw:true, defval:null});
+  const tp = parseTransprensa(aoa);
+  if(tp) return {type:'transprensa', rows:tp};
+
+  const json = XLSX.utils.sheet_to_json(sheet, {defval:null, raw:true});
+  if(!json.length) throw new Error('El archivo no contiene filas de datos.');
+  const carrier = detectCarrier(json[0]);
+  if(carrier === 'coordinadora'){
+    json.forEach(r => { r._carrier = 'coordinadora'; }); // única marca agregada; el resto de la fila queda intacto
+    return {type:'coordinadora', rows:json};
+  }
+  if(carrier === 'envia'){
+    const guiaKey = findKey(json[0], ['Guia']);
+    return {type:'envia', rows: json.map(r => { const n = normalizeEnvia(r, guiaKey); n._carrier = 'envia'; return n; })};
+  }
+  throw new Error('No reconozco la estructura (se esperaba Coordinadora, Envía, Transprensa o el Plan B).');
+}
+
+async function handleFiles(files){
   uploadError.style.display = 'none';
-  const reader = new FileReader();
-  reader.onload = (e) => {
+  const errors = [], loadedTypes = [];
+  for(const file of files){
     try{
-      const data = new Uint8Array(e.target.result);
-      const wb = XLSX.read(data, {type:'array', cellDates:true});
-      const sheet = wb.Sheets[wb.SheetNames[0]];
-      const json = XLSX.utils.sheet_to_json(sheet, {defval:null, raw:true});
-      if(!json.length) throw new Error('El archivo no contiene filas de datos.');
-
-      const carrier = detectCarrier(json[0]);
-      let carrierLabel;
-      if(carrier === 'coordinadora'){
-        RAW = json; // sin tocar: comportamiento original intacto
-        carrierLabel = 'Coordinadora';
-      } else if(carrier === 'envia'){
-        const guiaKey = findKey(json[0], ['Guia']);
-        RAW = json.map(r => normalizeEnvia(r, guiaKey));
-        carrierLabel = 'Envía';
-      } else {
-        throw new Error('No reconozco la estructura de este archivo. Verifica que sea un informe de Coordinadora o de Envía.');
-      }
-      currentCarrier = carrier;
-
-      fileTag.textContent = (file.name.length > 34 ? file.name.slice(0,31)+'...' : file.name);
-      currentEstado = 'ALL';
-      currentCategory = 'ALL';
-      onlyNovedad = false;
-      buildApp();
+      const buf = await readFileBuffer(file);
+      const wb = XLSX.read(new Uint8Array(buf), {type:'array', cellDates:true});
+      const res = classifyWorkbook(wb);
+      DATA[res.type] = res.type === 'plan' ? {fileName:file.name, ciudades:res.ciudades} : {fileName:file.name, rows:res.rows};
+      loadedTypes.push(res.type);
     }catch(err){
-      uploadError.textContent = 'No se pudo leer el archivo: ' + err.message;
-      uploadError.style.display = 'block';
+      errors.push(file.name + ': ' + err.message);
     }
-  };
-  reader.onerror = () => {
-    uploadError.textContent = 'Error al leer el archivo. Intenta de nuevo.';
+  }
+  if(errors.length){
+    uploadError.textContent = 'No se pudo leer → ' + errors.join(' | ');
     uploadError.style.display = 'block';
-  };
-  reader.readAsArrayBuffer(file);
+  }
+  if(loadedTypes.length){
+    if(loadedTypes.includes('coordinadora') || loadedTypes.includes('envia')) currentView = 'manifiesto';
+    refreshApp();
+  }
+}
+
+// ---------- Estado general de la app ----------
+
+function isMulti(){ return !!(DATA.coordinadora && DATA.envia); }
+
+function composeRaw(){
+  const f = isMulti() ? carrierFilter : 'ALL';
+  const rows = [];
+  if(DATA.coordinadora && (f === 'ALL' || f === 'coordinadora')) rows.push(...DATA.coordinadora.rows);
+  if(DATA.envia && (f === 'ALL' || f === 'envia')) rows.push(...DATA.envia.rows);
+  return rows;
+}
+
+function resetManifestFilters(){
+  currentEstado = 'ALL'; currentCategory = 'ALL'; onlyNovedad = false;
+  document.getElementById('sinFechaToggle').checked = false;
+  document.getElementById('novedadToggle').checked = false;
+  document.getElementById('sinFechaWrap').classList.remove('active');
+  document.getElementById('novedadToggleWrap').classList.remove('active');
+  document.getElementById('search').value = '';
+}
+
+function renderLoadedFiles(){
+  const labels = {coordinadora:'Coordinadora', envia:'Envía', transprensa:'Transprensa', plan:'Plan B'};
+  const el = document.getElementById('loadedFiles');
+  const chips = [];
+  ['coordinadora', 'envia', 'transprensa', 'plan'].forEach(t => {
+    const d = DATA[t]; if(!d) return;
+    const meta = t === 'plan' ? d.ciudades.length + ' ciudades' : (t === 'transprensa' ? d.rows.length + ' remesas' : d.rows.length + ' envíos');
+    chips.push(`<span class="lf-chip ${t}"><b>${labels[t]}</b><span class="lf-meta" title="${escapeAttr(d.fileName)}">${meta} · ${escapeHtml(d.fileName)}</span><span class="lf-x" data-type="${t}" title="Quitar este archivo">×</span></span>`);
+  });
+  el.innerHTML = chips.join('');
+  el.querySelectorAll('.lf-x').forEach(x => x.addEventListener('click', () => { DATA[x.getAttribute('data-type')] = null; refreshApp(); }));
+  const n = ['coordinadora', 'envia', 'transprensa', 'plan'].filter(t => DATA[t]).length;
+  fileTag.textContent = n === 0 ? 'SIN ARCHIVO CARGADO' : (n === 1 ? '1 ARCHIVO CARGADO' : n + ' ARCHIVOS CARGADOS');
+}
+
+function renderCarrierBar(){
+  const bar = document.getElementById('carrierBar');
+  const hasC = !!DATA.coordinadora, hasE = !!DATA.envia;
+  if(hasC && hasE){
+    const opt = (key, cls, label) => `<div class="carrier-opt ${cls} ${carrierFilter === key ? 'active' : ''}" data-carrier="${key}"><span class="dot"></span>${label}</div>`;
+    bar.innerHTML = `<div class="carrier-select">${opt('ALL', 'all', 'Coordinadora + Envía')}${opt('coordinadora', 'coordinadora', 'Solo Coordinadora')}${opt('envia', 'envia', 'Solo Envía')}</div>`;
+    bar.querySelectorAll('.carrier-opt').forEach(el => el.addEventListener('click', () => { carrierFilter = el.getAttribute('data-carrier'); refreshApp(); }));
+  } else if(hasC || hasE){
+    const key = hasC ? 'coordinadora' : 'envia';
+    bar.innerHTML = `<div class="carrier-badge ${key}"><span class="dot"></span><span>${hasC ? 'Datos de Coordinadora' : 'Datos de Envía'}</span></div>`;
+  } else {
+    bar.innerHTML = '';
+  }
+}
+
+function refreshApp(){
+  if(!isMulti()) carrierFilter = 'ALL';
+  renderLoadedFiles();
+  renderCarrierBar();
+  RAW = composeRaw();
+  const hasManifest = RAW.length > 0;
+  const anyData = hasManifest || !!DATA.transprensa;
+  app.style.display = anyData ? 'block' : 'none';
+  document.getElementById('btnViewManifiesto').style.display = hasManifest ? '' : 'none';
+  document.getElementById('btnViewAnalytics').style.display = hasManifest ? '' : 'none';
+  if(hasManifest){ resetManifestFilters(); buildApp(); }
+  buildPlanB();
+  showView(hasManifest ? currentView : 'planb');
 }
 
 function fmtDate(v){
@@ -520,19 +783,20 @@ function estadoPillClass(estado){
   return 'neutral';
 }
 
+function bindOnce(el, evt, fn){
+  const k = '_bound_' + evt;
+  if(el[k]) return;
+  el[k] = true;
+  el.addEventListener(evt, fn);
+}
+
 function buildApp(){
   app.style.display = 'block';
-
-  // --- insignia de transportadora ---
-  const badgeEl = document.getElementById('carrierBadge');
-  const badgeTextEl = document.getElementById('carrierBadgeText');
-  badgeEl.className = 'carrier-badge ' + currentCarrier;
-  badgeTextEl.textContent = currentCarrier === 'envia' ? 'Datos de Envía' : 'Datos de Coordinadora';
 
   // --- summary cards ---
   const total = RAW.length;
   const entregadas = RAW.filter(r => tieneFechaEntregaReal(r)).length;
-  const incidencias = RAW.filter(r => String(r['Estado']||'').toLowerCase().includes('incidencia')).length;
+  const incidencias = RAW.filter(r => matchesCategory(r, 'INCIDENCIA')).length;
   const enRuta = RAW.filter(r => !tieneFechaEntregaReal(r)).length;
 
   const conNovedadTotal = RAW.filter(r => r['Novedad']).length;
@@ -586,24 +850,24 @@ function buildApp(){
   destSelect.innerHTML = '<option value="">Todos los destinos</option>' +
     dests.map(d => `<option value="${escapeAttr(d)}">${escapeHtml(d)}</option>`).join('');
 
-  document.getElementById('search').addEventListener('input', renderTable);
-  destSelect.addEventListener('change', renderTable);
+  bindOnce(document.getElementById('search'), 'input', renderTable);
+  bindOnce(destSelect, 'change', renderTable);
 
   const sinFechaWrap = document.getElementById('sinFechaWrap');
   const sinFechaToggle = document.getElementById('sinFechaToggle');
-  sinFechaToggle.addEventListener('change', (e) => {
+  bindOnce(sinFechaToggle, 'change', (e) => {
     sinFechaWrap.classList.toggle('active', e.target.checked);
     renderTable();
   });
 
   const novWrap = document.getElementById('novedadToggleWrap');
-  document.getElementById('novedadToggle').addEventListener('change', (e) => {
+  bindOnce(document.getElementById('novedadToggle'), 'change', (e) => {
     onlyNovedad = e.target.checked;
     novWrap.classList.toggle('active', onlyNovedad);
     renderTable();
   });
 
-  document.getElementById('resetBtn').addEventListener('click', () => {
+  bindOnce(document.getElementById('resetBtn'), 'click', () => {
     document.getElementById('search').value = '';
     destSelect.value = '';
     sinFechaToggle.checked = false;
@@ -655,19 +919,23 @@ function categoryLabel(){
   return '';
 }
 
+function showView(name){
+  currentView = name;
+  // las tarjetas y el selector de transportadora solo aplican al manifiesto y al análisis
+  const manifestChrome = RAW.length > 0 && name !== 'planb';
+  document.getElementById('summary').style.display = manifestChrome ? '' : 'none';
+  document.getElementById('carrierBar').style.display = manifestChrome ? '' : 'none';
+  const map = {manifiesto:['viewManifiesto','btnViewManifiesto'], analytics:['viewAnalytics','btnViewAnalytics'], planb:['viewPlanB','btnViewPlanB']};
+  Object.keys(map).forEach(k => {
+    document.getElementById(map[k][0]).style.display = (k === name) ? 'block' : 'none';
+    document.getElementById(map[k][1]).classList.toggle('active', k === name);
+  });
+}
+
 function setupViewSwitch(){
-  const btnM = document.getElementById('btnViewManifiesto');
-  const btnA = document.getElementById('btnViewAnalytics');
-  btnM.addEventListener('click', () => {
-    document.getElementById('viewManifiesto').style.display = 'block';
-    document.getElementById('viewAnalytics').style.display = 'none';
-    btnM.classList.add('active'); btnA.classList.remove('active');
-  });
-  btnA.addEventListener('click', () => {
-    document.getElementById('viewManifiesto').style.display = 'none';
-    document.getElementById('viewAnalytics').style.display = 'block';
-    btnA.classList.add('active'); btnM.classList.remove('active');
-  });
+  document.getElementById('btnViewManifiesto').addEventListener('click', () => showView('manifiesto'));
+  document.getElementById('btnViewAnalytics').addEventListener('click', () => showView('analytics'));
+  document.getElementById('btnViewPlanB').addEventListener('click', () => showView('planb'));
 }
 setupViewSwitch();
 
@@ -783,6 +1051,11 @@ function escapeHtml(s){
 }
 function escapeAttr(s){ return escapeHtml(s); }
 
+function carrierTag(r){
+  if(!isMulti() || !r._carrier) return '';
+  return r._carrier === 'envia' ? '<span class="ctag envia">ENVÍA</span>' : '<span class="ctag coordinadora">COORD.</span>';
+}
+
 function renderTable(){
   const search = document.getElementById('search').value.toLowerCase().trim();
   const dest = document.getElementById('destFilter').value;
@@ -832,7 +1105,7 @@ function renderTable(){
     const novedad = r['Novedad'] ? `<div class="novedad">${escapeHtml(r['Novedad'])}</div>` : '<span class="muted">—</span>';
 
     return `<tr>
-      <td class="code">${escapeHtml(r['Codigo remision']||'—')}</td>
+      <td class="code">${escapeHtml(r['Codigo remision']||'—')}${carrierTag(r)}</td>
       <td><div class="route"><span class="o">${escapeHtml(r['Ciudad origen']||'—')}</span><span class="d">→ ${escapeHtml(r['Destino']||'—')}</span></div></td>
       <td>${escapeHtml(r['Nombre destinatario']||'—')}</td>
       <td>${fmtDate(r['Fecha recogida'])}</td>
@@ -842,6 +1115,146 @@ function renderTable(){
       <td>${peso}</td>
       <td><span class="money">${fmtMoney(r['Flete Total'])}</span></td>
       <td>${novedad}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ================== CONTROL PLAN B (Transprensa vs. Plan B) ==================
+// Idea: el Plan B asigna cada ciudad a UNA sola transportadora. El informe de Transprensa prueba qué ciudades
+// se despacharon con Transprensa; si el plan no se las asigna a Transprensa, es un desvío.
+
+let PLANB_ROWS = [];
+
+function normCity(s){
+  return String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/\s+/g, ' ').trim();
+}
+
+function planList(){ return DATA.plan ? DATA.plan.ciudades : DEFAULT_PLAN; }
+
+function planMap(){
+  const m = new Map();
+  planList().forEach(p => {
+    const k = normCity(p[0]);
+    if(!m.has(k)) m.set(k, {ciudad:p[0], carrier:p[1], razon:p[2], tEnvia:p[3], tCoord:p[4], tTransp:p[5]});
+  });
+  return m;
+}
+
+function classifyRemesa(t, map){
+  const p = map.get(normCity(t.destino));
+  if(!p) return {status:'NO_PLAN', plan:null};
+  return {status: normCity(p.carrier) === 'TRANSPRENSA' ? 'CUMPLE' : 'NO_CUMPLE', plan:p};
+}
+
+function planTarifa(p){
+  if(!p) return null;
+  const c = normCity(p.carrier);
+  if(c === 'ENVIA') return p.tEnvia;
+  if(c === 'COORDINADORA') return p.tCoord;
+  if(c === 'TRANSPRENSA') return p.tTransp;
+  return null;
+}
+
+function statusPill(c){
+  if(c.status === 'CUMPLE') return '<span class="pill ok">Cumple</span>';
+  if(c.status === 'NO_CUMPLE') return `<span class="pill bad">No cumple</span><span class="plan-sub">Debía ir con ${escapeHtml(c.plan.carrier)}</span>`;
+  return '<span class="pill warn">No está en el plan</span><span class="plan-sub">Regla del plan: Envía y avisar a gerencia</span>';
+}
+
+function planCell(c){
+  if(!c.plan) return '<span class="muted">—</span>';
+  const sinCob = c.plan.tTransp == null ? '<span class="plan-sub">Transprensa sin cobertura en el plan</span>' : '';
+  const razon = c.plan.razon ? `<span class="plan-sub">${escapeHtml(c.plan.razon)}</span>` : '';
+  return `<b>${escapeHtml(c.plan.carrier)}</b>${razon}${sinCob}`;
+}
+
+function buildPlanB(){
+  const emptyEl = document.getElementById('planBEmpty');
+  const contentEl = document.getElementById('planBContent');
+  if(!DATA.transprensa){
+    emptyEl.style.display = 'block'; contentEl.style.display = 'none';
+    PLANB_ROWS = [];
+    return;
+  }
+  emptyEl.style.display = 'none'; contentEl.style.display = 'block';
+
+  const map = planMap();
+  PLANB_ROWS = DATA.transprensa.rows.map(t => ({t, c: classifyRemesa(t, map)}));
+  planStatusFilter = 'ALL';
+
+  const total = PLANB_ROWS.length;
+  const sum = (arr, f) => arr.reduce((a, x) => a + f(x), 0);
+  const units = sum(PLANB_ROWS, x => x.t.cant);
+  const valor = sum(PLANB_ROWS, x => x.t.total);
+  const cumple = PLANB_ROWS.filter(x => x.c.status === 'CUMPLE');
+  const noCumple = PLANB_ROWS.filter(x => x.c.status === 'NO_CUMPLE');
+  const noPlan = PLANB_ROWS.filter(x => x.c.status === 'NO_PLAN');
+  const uCumple = sum(cumple, x => x.t.cant);
+  const pctR = total ? (cumple.length / total * 100).toFixed(1) : '0.0';
+  const pctU = units ? (uCumple / units * 100).toFixed(1) : '0.0';
+
+  const planSrc = DATA.plan ? 'archivo ' + escapeHtml(DATA.plan.fileName) : 'Plan B de julio 2026 (incluido en la app)';
+  document.getElementById('planNote').innerHTML =
+    `Plan usado: <b>${planSrc}</b> · ${planList().length} ciudades. Informe de Transprensa: <b>${escapeHtml(DATA.transprensa.fileName)}</b>.<br>` +
+    `Regla del Plan B: cada ciudad va con una sola transportadora. Transprensa solo debería llevar las ciudades que el plan le asigna; cualquier otra es un desvío. ` +
+    `Sube un archivo de plan nuevo (hoja "Plan B - Ciudades") para actualizarlo.`;
+
+  document.getElementById('planKpis').innerHTML = `
+    <div class="kpi"><div class="n">${total}</div><div class="l">Remesas Transprensa</div></div>
+    <div class="kpi"><div class="n" style="color:var(--teal)">${cumple.length}</div><div class="l">Cumplen el plan (${pctR}%)</div></div>
+    <div class="kpi"><div class="n" style="color:var(--red)">${noCumple.length}</div><div class="l">No cumplen el plan</div></div>
+    <div class="kpi"><div class="n" style="color:var(--amber)">${noPlan.length}</div><div class="l">Destino no está en el plan</div></div>
+    <div class="kpi"><div class="n">${uCumple} de ${units}</div><div class="l">Unidades que cumplen (${pctU}%)</div></div>
+    <div class="kpi"><div class="n">$${Math.round(valor).toLocaleString('es-CO')}</div><div class="l">Valor total Transprensa</div></div>
+  `;
+
+  // resumen por destino
+  const byCity = new Map();
+  PLANB_ROWS.forEach(({t, c}) => {
+    const k = normCity(t.destino);
+    if(!byCity.has(k)) byCity.set(k, {destino:t.destino, rem:0, units:0, valor:0, c});
+    const g = byCity.get(k); g.rem++; g.units += t.cant; g.valor += t.total;
+  });
+  const order = {NO_CUMPLE:0, NO_PLAN:1, CUMPLE:2};
+  const cities = [...byCity.values()].sort((a, b) => (order[a.c.status] - order[b.c.status]) || (b.units - a.units));
+  document.getElementById('planCityBody').innerHTML = cities.map(g => `<tr>
+    <td><b>${escapeHtml(g.destino)}</b></td>
+    <td>${g.rem}</td>
+    <td>${g.units}</td>
+    <td><span class="money">${fmtMoney(g.valor)}</span></td>
+    <td>${planCell(g.c)}</td>
+    <td>${statusPill(g.c)}</td>
+  </tr>`).join('');
+
+  // pestañas del detalle
+  const tabsEl = document.getElementById('planTabs');
+  const tabDefs = [['ALL', 'Todas', total], ['NO_CUMPLE', 'No cumple', noCumple.length], ['NO_PLAN', 'No está en el plan', noPlan.length], ['CUMPLE', 'Cumple', cumple.length]];
+  tabsEl.innerHTML = tabDefs.map(([k, label, n]) => `<div class="tab ${k === 'ALL' ? 'active' : ''}" data-status="${k}">${label} <span class="count">${n}</span></div>`).join('');
+  tabsEl.querySelectorAll('.tab').forEach(el => el.addEventListener('click', () => {
+    planStatusFilter = el.getAttribute('data-status');
+    tabsEl.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    el.classList.add('active');
+    renderPlanDetail();
+  }));
+
+  renderPlanDetail();
+}
+
+function renderPlanDetail(){
+  const list = PLANB_ROWS.filter(x => planStatusFilter === 'ALL' || x.c.status === planStatusFilter);
+  document.getElementById('planDetailBody').innerHTML = list.map(({t, c}) => {
+    const real = t.cant > 0 ? t.total / t.cant : null;
+    return `<tr>
+      <td class="code">${escapeHtml(t.remesa)}</td>
+      <td>${fmtDate(t.fecha)}</td>
+      <td><div class="route"><span class="o">${escapeHtml(t.origen || '—')}</span><span class="d">→ ${escapeHtml(t.destino)}</span></div></td>
+      <td>${escapeHtml(t.destinatario || '—')}</td>
+      <td>${t.cant}</td>
+      <td><span class="money">${fmtMoney(t.total)}</span></td>
+      <td><span class="money">${fmtMoney(real)}</span></td>
+      <td>${planCell(c)}</td>
+      <td><span class="money">${fmtMoney(planTarifa(c.plan))}</span></td>
+      <td>${statusPill(c)}</td>
     </tr>`;
   }).join('');
 }
