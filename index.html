@@ -1067,34 +1067,83 @@ function readFileBuffer(file){
 // Informe General de Remesa Cliente de Transprensa: es un reporte impreso (títulos, celdas combinadas, fila de totales).
 // Se ubica la fila de encabezados por su texto y se leen las columnas por posición del encabezado.
 function parseTransprensa(aoa){
+  const norm = c => c == null ? '' : String(c).trim().toLowerCase();
   let h = -1, labels = null;
   for(let i = 0; i < Math.min(aoa.length, 40); i++){
-    const l = (aoa[i] || []).map(c => c == null ? '' : String(c).trim());
-    if(l.includes('Remesa') && l.includes('Destino') && l.includes('Destinatario')){ h = i; labels = l; break; }
+    const l = (aoa[i] || []).map(norm);
+    if(l.includes('remesa') && l.includes('destino') && l.includes('destinatario')){ h = i; labels = l; break; }
   }
   if(h < 0) return null;
-  const ix = n => labels.indexOf(n);
-  const I = {remesa:ix('Remesa'), fecha:ix('Fecha'), origen:ix('Origen'), cliente:ix('Cliente'), pago:ix('Forma Pago'),
-            destinatario:ix('Destinatario'), destino:ix('Destino'), factura:ix('Factura'), peso:ix('Peso'), cant:ix('Cant.'),
-            flete:ix('Flete'), manejo:ix('Manejo'), declarado:ix('Declarado'), total:ix('Vlr. Total')};
+  // Transprensa entrega dos formatos: el "Informe General de Remesa Cliente" (encabezados Remesa, Destino, Cant....)
+  // y la estructura general en texto separado por ";" (remesa;fecha;...;destino;...;cantidad;anulada;...). Se leen los dos.
+  const ix = (...names) => { for(const n of names){ const j = labels.indexOf(n); if(j >= 0) return j; } return -1; };
+  const I = {remesa:ix('remesa'), fecha:ix('fecha'), origen:ix('origen'), cliente:ix('cliente'), destinatario:ix('destinatario'),
+            destino:ix('destino'), factura:ix('factura'), peso:ix('peso'), cant:ix('cant.', 'cantidad'), flete:ix('flete'),
+            manejo:ix('manejo'), declarado:ix('declarado', 'valordeclarado'), total:ix('vlr. total', 'total'),
+            anulada:ix('anulada'), estado:ix('estado_atencion')};
   const get = (r, k) => (I[k] >= 0 && r[I[k]] != null) ? r[I[k]] : null;
   const num = v => { const x = Number(v); return isFinite(x) ? x : 0; };
+  // el sistema guarda la remesa como número y pierde el cero inicial (102042006657 en vez de 0102042006657, como en el portal)
+  const fmtRemesa = t => /^1\d{11}$/.test(t) ? '0' + t : t;
   const rows = [];
+  let anuladas = 0;
   for(let i = h + 1; i < aoa.length; i++){
     const r = aoa[i]; if(!r) continue;
     const rem = get(r, 'remesa'); if(rem == null) continue;
     const remS = String(rem).trim();
     if(!/^\d{6,}$/.test(remS)) continue;          // salta totales, pies de página y encabezados repetidos
     const destino = get(r, 'destino'); if(!destino) continue;
+    if(norm(get(r, 'anulada')) === 'si' || norm(get(r, 'estado')) === 'anulado'){ anuladas++; continue; }  // remesas anuladas no cuentan
     rows.push({
-      remesa: remS, fecha: get(r, 'fecha'), origen: get(r, 'origen'), cliente: get(r, 'cliente'),
+      remesa: fmtRemesa(remS), fecha: get(r, 'fecha'), origen: get(r, 'origen'), cliente: get(r, 'cliente'),
       destinatario: get(r, 'destinatario'), destino: String(destino).trim(), factura: get(r, 'factura'),
       peso: num(get(r, 'peso')), cant: num(get(r, 'cant')), flete: num(get(r, 'flete')),
       manejo: num(get(r, 'manejo')), declarado: num(get(r, 'declarado')), total: num(get(r, 'total'))
     });
   }
   if(!rows.length) throw new Error('El informe de Transprensa no tiene remesas.');
-  return rows;
+  return {rows, anuladas};
+}
+
+// ----- Archivos de texto delimitado (CSV/TXT), p. ej. la estructura general de Transprensa, que llega como CSV con extensión .xlsx -----
+function decodeText(buf){
+  const u = new Uint8Array(buf);
+  if(typeof TextDecoder !== 'undefined'){
+    try{ return new TextDecoder('utf-8', {fatal:true}).decode(u); }catch(e){ /* no es UTF-8: se lee como Windows-1252 (tildes y ñ) */ }
+    try{ return new TextDecoder('windows-1252').decode(u); }catch(e){}
+  }
+  let t = '';
+  for(let i = 0; i < u.length; i++) t += String.fromCharCode(u[i]);
+  return t;
+}
+
+function parseDelimited(text){
+  text = text.replace(/^\uFEFF/, '');
+  const first = text.split(/\r?\n/, 1)[0] || '';
+  const delim = [';', '\t', ',', '|'].map(d => [d, first.split(d).length - 1]).sort((a, b) => b[1] - a[1])[0][0];
+  const rows = [];
+  let row = [], cur = '', q = false;
+  for(let i = 0; i < text.length; i++){
+    const ch = text[i];
+    if(q){
+      if(ch === '"'){ if(text[i + 1] === '"'){ cur += '"'; i++; } else q = false; }
+      else cur += ch;
+    } else if(ch === '"' && cur === ''){ q = true; }
+    else if(ch === delim){ row.push(cur); cur = ''; }
+    else if(ch === '\n' || ch === '\r'){
+      if(ch === '\r' && text[i + 1] === '\n') i++;
+      row.push(cur); cur = ''; rows.push(row); row = [];
+    } else cur += ch;
+  }
+  if(cur !== '' || row.length){ row.push(cur); rows.push(row); }
+  return rows.filter(r => r.some(c => c !== ''));
+}
+
+function classifyText(buf){
+  const aoa = parseDelimited(decodeText(buf));
+  const tp = aoa.length ? parseTransprensa(aoa) : null;
+  if(tp) return {type:'transprensa', rows:tp.rows, anuladas:tp.anuladas};
+  throw new Error('No reconozco la estructura (se esperaba Coordinadora, Envía, Transprensa o el Plan B).');
 }
 
 // Hoja "Plan B - Ciudades" del archivo del plan de transportadoras
@@ -1133,7 +1182,7 @@ function classifyWorkbook(wb){
 
   const aoa = XLSX.utils.sheet_to_json(sheet, {header:1, raw:true, defval:null});
   const tp = parseTransprensa(aoa);
-  if(tp) return {type:'transprensa', rows:tp};
+  if(tp) return {type:'transprensa', rows:tp.rows, anuladas:tp.anuladas};
 
   const json = XLSX.utils.sheet_to_json(sheet, {defval:null, raw:true});
   if(!json.length) throw new Error('El archivo no contiene filas de datos.');
@@ -1155,9 +1204,17 @@ async function handleFiles(files){
   for(const file of files){
     try{
       const buf = await readFileBuffer(file);
-      const wb = XLSX.read(new Uint8Array(buf), looksLikeHtml(buf) ? {type:'array', cellDates:true, raw:true} : {type:'array', cellDates:true});
-      const res = classifyWorkbook(wb);
-      DATA[res.type] = res.type === 'plan' ? {fileName:file.name, ciudades:res.ciudades} : {fileName:file.name, rows:res.rows};
+      const u8 = new Uint8Array(buf);
+      const esExcel = (u8[0] === 0x50 && u8[1] === 0x4B) || (u8[0] === 0xD0 && u8[1] === 0xCF && u8[2] === 0x11 && u8[3] === 0xE0); // .xlsx (zip) o .xls (binario)
+      const esHtml = looksLikeHtml(buf);
+      let res;
+      if(!esExcel && !esHtml){
+        res = classifyText(buf); // texto delimitado con extensión .xlsx/.xls (p. ej. la estructura general de Transprensa)
+      } else {
+        const wb = XLSX.read(u8, esHtml ? {type:'array', cellDates:true, raw:true} : {type:'array', cellDates:true});
+        res = classifyWorkbook(wb);
+      }
+      DATA[res.type] = res.type === 'plan' ? {fileName:file.name, ciudades:res.ciudades} : {fileName:file.name, rows:res.rows, anuladas:res.anuladas || 0};
       loadedTypes.push(res.type);
     }catch(err){
       errors.push(file.name + ': ' + err.message);
@@ -1747,7 +1804,8 @@ function renderPlanB(){
     (sinFecha ? ' (' + sinFecha + ' envíos sin fecha no se incluyen)' : '') : '';
   document.getElementById('planNote').innerHTML =
     `<b>Se envió con</b>: la transportadora del archivo de donde sale el envío. <b>Debía ir con</b>: la que asigna el Plan B a ese destino; si el destino no está en el plan, se asigna a Envía.<br>` +
-    `<span class="muted">Plan: ${planSrc} · Revisados: ${carriers.map(c => c + ' (' + PLANB_ROWS.filter(x => x.t.carrier === c).length + ')').join(', ')}${rango}</span>`;
+    `<span class="muted">Plan: ${planSrc} · Revisados: ${carriers.map(c => c + ' (' + PLANB_ROWS.filter(x => x.t.carrier === c).length + ')').join(', ')}${rango}` +
+    `${DATA.transprensa && DATA.transprensa.anuladas ? ' · ' + DATA.transprensa.anuladas + ' remesas anuladas de Transprensa no se cuentan' : ''}</span>`;
 
   document.getElementById('planKpis').innerHTML = `
     <div class="kpi"><div class="n">${total}</div><div class="l">Envíos revisados</div></div>
