@@ -1669,13 +1669,25 @@ function normCity(s){
   return String(s || '').replace(/\s*\([^)]*\)\s*/g, ' ').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/\s+/g, ' ').trim();
 }
 
-function planList(){ return DATA.plan ? DATA.plan.ciudades : DEFAULT_PLAN; }
+// Excepciones confirmadas: ciudades que el plan no trae pero que se despachan con una transportadora definida.
+// Se suman al plan que se esté usando (el incluido o el que se suba); si el plan ya trae la ciudad, manda el plan.
+// Formato: [ciudad, transportadora, nota]
+const PLAN_EXCEPCIONES = [
+  ['La Unión', 'Transprensa', 'La Unión (Valle del Cauca): confirmada, se despacha con Transprensa']
+];
+
+function planList(){
+  const base = DATA.plan ? DATA.plan.ciudades : DEFAULT_PLAN;
+  const tiene = new Set(base.map(p => normCity(p[0])));
+  const extra = PLAN_EXCEPCIONES.filter(e => !tiene.has(normCity(e[0]))).map(e => [e[0], e[1], e[2], null, null, null, true]);
+  return base.concat(extra);
+}
 
 function planMap(){
   const m = new Map();
   planList().forEach(p => {
     const k = normCity(p[0]);
-    if(!m.has(k)) m.set(k, {ciudad:p[0], carrier:p[1], razon:p[2], tEnvia:p[3], tCoord:p[4], tTransp:p[5]});
+    if(!m.has(k)) m.set(k, {ciudad:p[0], carrier:p[1], razon:p[2], tEnvia:p[3], tCoord:p[4], tTransp:p[5], excepcion:!!p[6]});
   });
   return m;
 }
@@ -1699,7 +1711,7 @@ function carrierTagLg(name){
 
 // Lo que debía hacerse según el Plan B
 function expectedCell(c){
-  const sub = c.plan.fuera ? '<span class="plan-sub">Destino fuera del plan</span>' : '';
+  const sub = c.plan.fuera ? '<span class="plan-sub">Destino fuera del plan</span>' : (c.plan.excepcion ? '<span class="plan-sub">Excepción confirmada</span>' : '');
   return carrierTagLg(c.plan.carrier) + sub;
 }
 
