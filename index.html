@@ -1720,6 +1720,11 @@ function statusPill(c){
   return '<span class="pill bad">No cumple</span>';
 }
 
+// Solo cuentan los despachos que SALEN de la sede: Pereira (Coordinadora y Transprensa) o Dosquebradas (Envía).
+// Lo que llega desde otras ciudades (pedidos recogidos) no es un despacho y no se controla.
+const ORIGEN_DESPACHO = {'Coordinadora':'PEREIRA', 'Envía':'DOSQUEBRADAS', 'Transprensa':'PEREIRA'};
+let PLANB_RECOGIDOS = 0;
+
 // Todos los envíos cargados (Coordinadora, Envía y Transprensa), con la transportadora con la que salieron
 function planBItems(){
   const items = [];
@@ -1727,7 +1732,11 @@ function planBItems(){
   if(DATA.coordinadora) DATA.coordinadora.rows.forEach(r => items.push({carrier:'Coordinadora', code:r['Codigo remision'], fecha:r['Fecha recogida'], origen:r['Ciudad origen'], destino:r['Destino'], destinatario:r['Nombre destinatario'], unid:num(r['Unidades'])}));
   if(DATA.envia) DATA.envia.rows.forEach(r => items.push({carrier:'Envía', code:r['Codigo remision'], fecha:r['Fecha recogida'], origen:r['Ciudad origen'], destino:r['Destino'], destinatario:r['Nombre destinatario'], unid:num(r['Unidades'])}));
   if(DATA.transprensa) DATA.transprensa.rows.forEach(t => items.push({carrier:'Transprensa', code:t.remesa, fecha:t.fecha, origen:t.origen, destino:t.destino, destinatario:t.destinatario, unid:num(t.cant)}));
-  return items.filter(it => it.destino);
+  const conDestino = items.filter(it => it.destino);
+  // se descarta solo lo que tiene un origen conocido y distinto al de la sede (si el informe no trae origen, no se puede saber)
+  const salen = conDestino.filter(it => !it.origen || normCity(it.origen) === ORIGEN_DESPACHO[it.carrier]);
+  PLANB_RECOGIDOS = conDestino.length - salen.length;
+  return salen;
 }
 
 // celda con la cantidad de envíos de una transportadora a un destino:
@@ -1817,7 +1826,8 @@ function renderPlanB(){
   document.getElementById('planNote').innerHTML =
     `<b>Se envió con</b>: la transportadora del archivo de donde sale el envío. <b>Debía ir con</b>: la que asigna el Plan B a ese destino; si el destino no está en el plan, se asigna a Envía.<br>` +
     `<span class="muted">Plan: ${planSrc} · Revisados: ${carriers.map(c => c + ' (' + PLANB_ROWS.filter(x => x.t.carrier === c).length + ')').join(', ')}${rango}` +
-    `${DATA.transprensa && DATA.transprensa.anuladas ? ' · ' + DATA.transprensa.anuladas + ' remesas anuladas de Transprensa no se cuentan' : ''}</span>`;
+    `${DATA.transprensa && DATA.transprensa.anuladas ? ' · ' + DATA.transprensa.anuladas + ' remesas anuladas de Transprensa no se cuentan' : ''}` +
+    `${PLANB_RECOGIDOS ? ' · ' + PLANB_RECOGIDOS + ' recogidos desde otras ciudades no se cuentan (solo salidas de Pereira o Dosquebradas)' : ''}</span>`;
 
   document.getElementById('planKpis').innerHTML = `
     <div class="kpi"><div class="n">${total}</div><div class="l">Envíos revisados</div></div>
