@@ -1188,8 +1188,12 @@ function classifyWorkbook(wb){
   if(!json.length) throw new Error('El archivo no contiene filas de datos.');
   const carrier = detectCarrier(json[0]);
   if(carrier === 'coordinadora'){
-    json.forEach(r => { r._carrier = 'coordinadora'; }); // única marca agregada; el resto de la fila queda intacto
-    return {type:'coordinadora', rows:json};
+    // En Coordinadora los códigos que empiezan por 020 son sobres y no se cuentan en ninguna parte de la app
+    const esSobre = r => String(r['Codigo remision'] == null ? '' : r['Codigo remision']).trim().startsWith('020');
+    const rows = json.filter(r => !esSobre(r));
+    rows.forEach(r => { r._carrier = 'coordinadora'; }); // única marca agregada; el resto de la fila queda intacto
+    if(!rows.length) throw new Error('Todos los envíos del archivo de Coordinadora son sobres (código 020); no hay nada que mostrar.');
+    return {type:'coordinadora', rows, sobres: json.length - rows.length};
   }
   if(carrier === 'envia'){
     const guiaKey = findKey(json[0], ['Guia']);
@@ -1214,7 +1218,7 @@ async function handleFiles(files){
         const wb = XLSX.read(u8, esHtml ? {type:'array', cellDates:true, raw:true} : {type:'array', cellDates:true});
         res = classifyWorkbook(wb);
       }
-      DATA[res.type] = res.type === 'plan' ? {fileName:file.name, ciudades:res.ciudades} : {fileName:file.name, rows:res.rows, anuladas:res.anuladas || 0};
+      DATA[res.type] = res.type === 'plan' ? {fileName:file.name, ciudades:res.ciudades} : {fileName:file.name, rows:res.rows, anuladas:res.anuladas || 0, sobres:res.sobres || 0};
       loadedTypes.push(res.type);
     }catch(err){
       errors.push(file.name + ': ' + err.message);
@@ -1257,7 +1261,7 @@ function renderLoadedFiles(){
   const chips = [];
   ['coordinadora', 'envia', 'transprensa', 'plan'].forEach(t => {
     const d = DATA[t]; if(!d) return;
-    const meta = t === 'plan' ? d.ciudades.length + ' ciudades' : (t === 'transprensa' ? d.rows.length + ' remesas' : d.rows.length + ' envíos');
+    const meta = t === 'plan' ? d.ciudades.length + ' ciudades' : (t === 'transprensa' ? d.rows.length + ' remesas' : d.rows.length + ' envíos') + (d.sobres ? ' (sin ' + d.sobres + ' sobres 020)' : '');
     chips.push(`<span class="lf-chip ${t}"><b>${labels[t]}</b><span class="lf-meta" title="${escapeAttr(d.fileName)}">${meta} · ${escapeHtml(d.fileName)}</span><span class="lf-x" data-type="${t}" title="Quitar este archivo">×</span></span>`);
   });
   el.innerHTML = chips.join('');
@@ -1827,6 +1831,7 @@ function renderPlanB(){
     `<b>Se envió con</b>: la transportadora del archivo de donde sale el envío. <b>Debía ir con</b>: la que asigna el Plan B a ese destino; si el destino no está en el plan, se asigna a Envía.<br>` +
     `<span class="muted">Plan: ${planSrc} · Revisados: ${carriers.map(c => c + ' (' + PLANB_ROWS.filter(x => x.t.carrier === c).length + ')').join(', ')}${rango}` +
     `${DATA.transprensa && DATA.transprensa.anuladas ? ' · ' + DATA.transprensa.anuladas + ' remesas anuladas de Transprensa no se cuentan' : ''}` +
+    `${DATA.coordinadora && DATA.coordinadora.sobres ? ' · ' + DATA.coordinadora.sobres + ' sobres de Coordinadora (código 020) no se cuentan' : ''}` +
     `${PLANB_RECOGIDOS ? ' · ' + PLANB_RECOGIDOS + ' recogidos desde otras ciudades no se cuentan (solo salidas de Pereira o Dosquebradas)' : ''}</span>`;
 
   document.getElementById('planKpis').innerHTML = `
