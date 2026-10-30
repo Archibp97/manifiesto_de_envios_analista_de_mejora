@@ -894,6 +894,22 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var r,n,i,a,
           </table>
         </div>
         <div id="planDetailEmpty" class="empty-state" style="display:none;">No hay envíos con este filtro.</div>
+
+        <h3 class="section-title">Ajustes al plan</h3>
+        <div class="table-scroll">
+          <table id="planAjustesTable">
+            <thead>
+              <tr>
+                <th>Ciudad</th>
+                <th>Se despacha con</th>
+                <th>El plan dice</th>
+                <th>Nota</th>
+              </tr>
+            </thead>
+            <tbody id="planAjustesBody"></tbody>
+          </table>
+        </div>
+        <div class="table-note">Estas ciudades se despachan con la transportadora indicada, sin importar lo que diga el plan.</div>
       </div>
     </div>
 
@@ -1673,18 +1689,25 @@ function normCity(s){
   return String(s || '').replace(/\s*\([^)]*\)\s*/g, ' ').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/\s+/g, ' ').trim();
 }
 
-// Excepciones confirmadas: ciudades que el plan no trae pero que se despachan con una transportadora definida.
-// Se suman al plan que se esté usando (el incluido o el que se suba); si el plan ya trae la ciudad, manda el plan.
-// Formato: [ciudad, transportadora, nota]
-const PLAN_EXCEPCIONES = [
-  ['La Unión', 'Transprensa', 'La Unión (Valle del Cauca): confirmada, se despacha con Transprensa']
+// AJUSTES AL PLAN: ciudades que se despachan con una transportadora definida por decisión del negocio.
+// Mandan sobre el plan (el incluido o el que se suba) y se van acumulando aquí, en el código.
+// Para agregar o cambiar una ciudad basta con sumar o editar una línea: [ciudad, transportadora, nota]
+const PLAN_AJUSTES = [
+  ['Manizales',  'Envía',        'Cambio confirmado: se despacha con Envía'],
+  ['Valledupar', 'Coordinadora', 'Cambio confirmado: se despacha con Coordinadora'],
+  ['Candelaria', 'Transprensa',  'Cambio confirmado: se despacha con Transprensa'],
+  ['Quibdó',     'Transprensa',  'Cambio confirmado: se despacha con Transprensa'],
+  ['La Unión',   'Transprensa',  'Caso especial (La Unión, Valle del Cauca): se despacha con Transprensa'],
+  ['Sampués',    'Coordinadora', 'Caso especial (Costa): se despacha con Coordinadora'],
+  ['Sahagún',    'Coordinadora', 'Caso especial (Costa): se despacha con Coordinadora']
 ];
 
+function planBase(){ return DATA.plan ? DATA.plan.ciudades : DEFAULT_PLAN; }
+
 function planList(){
-  const base = DATA.plan ? DATA.plan.ciudades : DEFAULT_PLAN;
-  const tiene = new Set(base.map(p => normCity(p[0])));
-  const extra = PLAN_EXCEPCIONES.filter(e => !tiene.has(normCity(e[0]))).map(e => [e[0], e[1], e[2], null, null, null, true]);
-  return base.concat(extra);
+  const ajustadas = new Set(PLAN_AJUSTES.map(a => normCity(a[0])));
+  return planBase().filter(p => !ajustadas.has(normCity(p[0])))
+    .concat(PLAN_AJUSTES.map(a => [a[0], a[1], a[2], null, null, null, true]));
 }
 
 function planMap(){
@@ -1715,7 +1738,7 @@ function carrierTagLg(name){
 
 // Lo que debía hacerse según el Plan B
 function expectedCell(c){
-  const sub = c.plan.fuera ? '<span class="plan-sub">Destino fuera del plan</span>' : (c.plan.excepcion ? '<span class="plan-sub">Excepción confirmada</span>' : '');
+  const sub = c.plan.fuera ? '<span class="plan-sub">Destino fuera del plan</span>' : (c.plan.excepcion ? '<span class="plan-sub">Ajuste al plan</span>' : '');
   return carrierTagLg(c.plan.carrier) + sub;
 }
 
@@ -1800,7 +1823,20 @@ function buildPlanB(){
   });
 
   planStatusFilter = PLANB_ALL.some(x => x.c.status === 'NO_CUMPLE') ? 'NO_CUMPLE' : 'ALL';
+  renderPlanAjustes();
   renderPlanB();
+}
+
+// Tabla con los ajustes vigentes y lo que dice el plan oficial para cada ciudad
+function renderPlanAjustes(){
+  const base = new Map(planBase().map(p => [normCity(p[0]), p[1]]));
+  document.getElementById('planAjustesBody').innerHTML = PLAN_AJUSTES.map(a => {
+    const oficial = base.get(normCity(a[0]));
+    const dice = oficial
+      ? carrierTagLg(oficial) + (normCity(oficial) === normCity(a[1]) ? '<span class="plan-sub">igual al ajuste</span>' : '')
+      : '<span class="muted">No está en el plan</span>';
+    return `<tr><td><b>${escapeHtml(a[0])}</b></td><td>${carrierTagLg(a[1])}</td><td>${dice}</td><td>${escapeHtml(a[2])}</td></tr>`;
+  }).join('');
 }
 
 // Pinta todo el Control Plan B con los envíos que caen dentro del rango de fechas elegido
