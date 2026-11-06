@@ -1699,7 +1699,17 @@ const PLAN_AJUSTES = [
   ['Quibdó',     'Transprensa',  'Cambio confirmado: se despacha con Transprensa'],
   ['La Unión',   'Transprensa',  'Caso especial (La Unión, Valle del Cauca): se despacha con Transprensa'],
   ['Sampués',    'Coordinadora', 'Caso especial (Costa): se despacha con Coordinadora'],
-  ['Sahagún',    'Coordinadora', 'Caso especial (Costa): se despacha con Coordinadora']
+  ['Sahagún',    'Coordinadora', 'Caso especial (Costa): se despacha con Coordinadora'],
+  ['Santa Rosa del Sur', 'Coordinadora', 'Caso especial (Costa, Bolívar): se despacha con Coordinadora']
+];
+
+// DESTINATARIOS ESPECIALES: siempre se despachan con la transportadora indicada,
+// sin importar el destino ni lo que diga el plan. Se reconocen aunque el nombre venga
+// en mayúsculas, sin tildes o con apellidos adicionales.
+// Para agregar otro: [nombre, transportadora, nota]
+const DESTINATARIOS_ESPECIALES = [
+  ['Mayerli Paola Fuentes',       'Coordinadora', 'Caso especial (destinataria): se despacha con Coordinadora'],
+  ['Sharon Estefani Silva Amaya', 'Coordinadora', 'Caso especial (destinataria): se despacha con Coordinadora']
 ];
 
 function planBase(){ return DATA.plan ? DATA.plan.ciudades : DEFAULT_PLAN; }
@@ -1722,8 +1732,18 @@ function planMap(){
 // Regla del Plan B: todo destino que no está en el plan se establece para enviarse con Envía
 const FUERA_DEL_PLAN = {ciudad:'', carrier:'Envía', razon:'Destino fuera del plan', tEnvia:null, tCoord:null, tTransp:null, fuera:true};
 
+// Busca si el destinatario del envío es uno de los casos especiales
+function destinatarioEspecial(item){
+  const dest = normCity(item.destinatario);
+  if(!dest) return null;
+  return DESTINATARIOS_ESPECIALES.find(d => dest.includes(normCity(d[0]))) || null;
+}
+
 function classifyItem(item, map){
-  const p = map.get(normCity(item.destino)) || FUERA_DEL_PLAN;
+  const esp = destinatarioEspecial(item);
+  const p = esp
+    ? {ciudad:item.destino, carrier:esp[1], razon:esp[2], tEnvia:null, tCoord:null, tTransp:null, especial:true}
+    : (map.get(normCity(item.destino)) || FUERA_DEL_PLAN);
   return {status: normCity(p.carrier) === normCity(item.carrier) ? 'CUMPLE' : 'NO_CUMPLE', plan:p};
 }
 
@@ -1738,7 +1758,9 @@ function carrierTagLg(name){
 
 // Lo que debía hacerse según el Plan B
 function expectedCell(c){
-  const sub = c.plan.fuera ? '<span class="plan-sub">Destino fuera del plan</span>' : (c.plan.excepcion ? '<span class="plan-sub">Ajuste al plan</span>' : '');
+  const sub = c.plan.especial ? '<span class="plan-sub">Caso especial (destinataria)</span>'
+    : c.plan.fuera ? '<span class="plan-sub">Destino fuera del plan</span>'
+    : c.plan.excepcion ? '<span class="plan-sub">Ajuste al plan</span>' : '';
   return carrierTagLg(c.plan.carrier) + sub;
 }
 
@@ -1887,11 +1909,12 @@ function renderPlanB(){
     return `<tr><td>${carrierTagLg(c)}</td><td>${rows.length}</td><td>${cu}</td><td>${nc}</td><td><b>${rows.length ? pct(cu, rows.length) + '%' : '—'}</b></td></tr>`;
   }).join('');
 
-  // por destino
+  // por destino (lo que dice el plan para la ciudad se toma siempre del plan, no de los casos especiales por destinataria)
   const byCity = new Map();
+  const cityPlan = planMap();
   PLANB_ROWS.forEach(({t, c}) => {
     const k = normCity(t.destino);
-    if(!byCity.has(k)) byCity.set(k, {destino:t.destino, plan:c.plan, n:{coordinadora:0, envia:0, transprensa:0}, total:0, bad:0});
+    if(!byCity.has(k)) byCity.set(k, {destino:t.destino, plan:cityPlan.get(k) || FUERA_DEL_PLAN, n:{coordinadora:0, envia:0, transprensa:0}, total:0, bad:0});
     const g = byCity.get(k);
     g.n[carrierKey(t.carrier)]++; g.total++;
     if(c.status === 'NO_CUMPLE') g.bad++;
