@@ -1332,6 +1332,7 @@ function planLookup(map, destino){
 // Para agregar o cambiar una ciudad basta con sumar o editar una línea: [ciudad, transportadora, nota]
 const PLAN_AJUSTES = [
   ['Manizales',  'Envía',        'Cambio confirmado: se despacha con Envía'],
+  ['Villamaría', 'Envía',        'Cambio confirmado: se despacha con Envía'],
   ['Valledupar', 'Coordinadora', 'Cambio confirmado: se despacha con Coordinadora'],
   ['Candelaria', 'Transprensa',  'Cambio confirmado: se despacha con Transprensa'],
   ['Quibdó',     'Transprensa',  'Cambio confirmado: se despacha con Transprensa'],
@@ -1343,14 +1344,16 @@ const PLAN_AJUSTES = [
 ];
 
 // DESTINATARIOS ESPECIALES: siempre se despachan con la transportadora indicada,
-// sin importar el destino ni lo que diga el plan. Se reconocen aunque el nombre venga
+// sin importar lo que diga el plan. Se reconocen aunque el nombre venga
 // en mayúsculas, sin tildes, en otro orden o con apellidos adicionales.
-// Para agregar otro: [nombre, transportadora, nota]
+// Para agregar otro: [nombre, transportadora, nota, destino (opcional)]
+// Si se indica un destino, el caso especial solo aplica cuando el envío va a esa ciudad.
 const DESTINATARIOS_ESPECIALES = [
   ['Mayerli Paola Fuentes',        'Coordinadora', 'Caso especial (destinataria): se despacha con Coordinadora'],
   ['Sharon Estefani Silva Amaya',  'Coordinadora', 'Caso especial (destinataria): se despacha con Coordinadora'],
   ['Jesús Olmedo Pejendino Cusis', 'Coordinadora', 'Caso especial (destinatario): se despacha con Coordinadora'],
-  ['Liliana Acuña Bolívar',        'Envía',        'Cliente especial: exige que se despache con Envía']
+  ['Liliana Acuña Bolívar',        'Envía',        'Cliente especial: exige que se despache con Envía'],
+  ['Eliseo Marín García',          'Coordinadora', 'Caso especial (destinatario): a Bucaramanga se despacha con Coordinadora', 'Bucaramanga']
 ];
 
 function planBase(){ return DATA.plan ? DATA.plan.ciudades : DEFAULT_PLAN; }
@@ -1373,13 +1376,22 @@ function planMap(){
 // Regla del Plan B: todo destino que no está en el plan se establece para enviarse con Envía
 const FUERA_DEL_PLAN = {ciudad:'', carrier:'Envía', razon:'Destino fuera del plan', tEnvia:null, tCoord:null, tTransp:null, fuera:true};
 
+// ¿El destino del envío es la ciudad indicada? (tolera tildes, mayúsculas y departamento: "BUCARAMANGA - SANTANDER")
+function mismoDestino(destino, ciudad){
+  const c = normCity(ciudad);
+  const raw = String(destino || '');
+  return normCity(raw) === c || normCity(raw.split(/[,\-\/]/)[0]) === c;
+}
+
 // Busca si el destinatario del envío es uno de los casos especiales.
 // Basta con que estén todas las palabras del nombre, en cualquier orden.
+// Si el caso tiene destino, además el envío debe ir a esa ciudad.
 function destinatarioEspecial(item){
   const palabras = new Set(normCity(item.destinatario).split(' ').filter(Boolean));
   if(!palabras.size) return null;
   return DESTINATARIOS_ESPECIALES.find(d =>
-    normCity(d[0]).split(' ').every(w => palabras.has(w))
+    normCity(d[0]).split(' ').every(w => palabras.has(w)) &&
+    (!d[3] || mismoDestino(item.destino, d[3]))
   ) || null;
 }
 
@@ -1623,7 +1635,7 @@ function especialesResumen(){
   return DESTINATARIOS_ESPECIALES.map(d => {
     const rs = PLANB_ROWS.filter(x => destinatarioEspecial(x.t) === d);
     const cu = rs.filter(x => x.c.status === 'CUMPLE').length;
-    return {nombre:d[0], carrier:d[1], n:rs.length, cu, nc:rs.length - cu};
+    return {nombre: d[0] + (d[3] ? ' (destino ' + d[3] + ')' : ''), carrier:d[1], n:rs.length, cu, nc:rs.length - cu};
   });
 }
 
@@ -1664,7 +1676,7 @@ function downloadPlanBReport(){
   rows.push([]);
   rows.push(['Envíos que no cumplieron el plan (' + bad.length + ')']);
   const headerRow = rows.length;
-  rows.push(['Código', 'Fecha', 'Ruta', 'Se envió con', 'Debía ir con']);
+  rows.push(['Código', 'Fecha', 'Ruta', 'Destinatario', 'Se envió con', 'Debía ir con']);
 
   const order = {'Coordinadora':0, 'Envía':1, 'Transprensa':2};
   const sorted = bad.slice().sort((a, b) => (order[a.t.carrier] - order[b.t.carrier]) || String(a.k || '').localeCompare(String(b.k || '')) || String(a.t.code).localeCompare(String(b.t.code)));
@@ -1674,6 +1686,7 @@ function downloadPlanBReport(){
       String(t.code || ''),
       serial(k) !== null ? serial(k) : '—',
       (t.origen ? t.origen + ' → ' : '') + t.destino,
+      String(t.destinatario || '—'),
       t.carrier,
       c.plan.carrier + (c.plan.fuera ? ' (destino fuera del plan)' : '')
     ]);
@@ -1691,8 +1704,8 @@ function downloadPlanBReport(){
     const cell = ws[XLSX.utils.encode_cell({r, c})];
     if(cell) cell.z = fmt[key];
   });
-  ws['!cols'] = [{wch:24}, {wch:13}, {wch:40}, {wch:16}, {wch:36}];
-  if(sorted.length) ws['!autofilter'] = {ref: XLSX.utils.encode_range({s:{r:headerRow, c:0}, e:{r:headerRow + sorted.length, c:4}})};
+  ws['!cols'] = [{wch:24}, {wch:13}, {wch:40}, {wch:34}, {wch:16}, {wch:36}];
+  if(sorted.length) ws['!autofilter'] = {ref: XLSX.utils.encode_range({s:{r:headerRow, c:0}, e:{r:headerRow + sorted.length, c:5}})};
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Incumplimientos');
@@ -1825,14 +1838,14 @@ function downloadPlanBPdf(){
     let hayFuera = false;
     const body = sorted.map(({t, c, k}) => {
       if(c.plan.fuera) hayFuera = true;
-      return [String(t.code || ''), ddmmyyyy(k), (t.origen ? t.origen + ' > ' : '') + t.destino, t.carrier, c.plan.carrier + (c.plan.fuera ? '*' : '')];
+      return [String(t.code || ''), ddmmyyyy(k), (t.origen ? t.origen + ' > ' : '') + t.destino, String(t.destinatario || '—'), t.carrier, c.plan.carrier + (c.plan.fuera ? '*' : '')];
     });
     doc.autoTable({
       startY: y + 6, margin:{top:22, left:M, right:M, bottom:18},
-      head: [['Código', 'Fecha', 'Ruta', 'Se envió con', 'Debía ir con']],
-      body, styles:{...baseStyles, fontSize:8.5, cellPadding:2.4}, headStyles, alternateRowStyles:{fillColor:COL.soft},
-      columnStyles: {0:{cellWidth:31, fontStyle:'bold'}, 1:{cellWidth:23}, 2:{cellWidth:'auto'}, 3:{cellWidth:33, fontStyle:'bold'}, 4:{cellWidth:33, fontStyle:'bold'}},
-      didParseCell: d => { if(d.section === 'body' && (d.column.index === 3 || d.column.index === 4)) d.cell.styles.textColor = carrierColor(String(d.cell.raw).replace('*', '')); },
+      head: [['Código', 'Fecha', 'Ruta', 'Destinatario', 'Se envió con', 'Debía ir con']],
+      body, styles:{...baseStyles, fontSize:7.8, cellPadding:2.2}, headStyles, alternateRowStyles:{fillColor:COL.soft},
+      columnStyles: {0:{cellWidth:28, fontStyle:'bold'}, 1:{cellWidth:19}, 2:{cellWidth:'auto'}, 3:{cellWidth:40}, 4:{cellWidth:25, fontStyle:'bold'}, 5:{cellWidth:25, fontStyle:'bold'}},
+      didParseCell: d => { if(d.section === 'body' && (d.column.index === 4 || d.column.index === 5)) d.cell.styles.textColor = carrierColor(String(d.cell.raw).replace('*', '')); },
       didDrawPage: d => {
         if(d.pageNumber > 1){
           doc.setFillColor(...COL.ink); doc.rect(0, 0, W, 11, 'F');
