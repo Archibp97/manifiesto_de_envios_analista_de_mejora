@@ -111,6 +111,8 @@
   .carrier-badge.coordinadora .dot{ background:#0b4a8f; }
   .carrier-badge.envia{ background:var(--red-soft); color:var(--red); border-color:var(--red); }
   .carrier-badge.envia .dot{ background:var(--red); }
+  .carrier-badge.transprensa{ background:var(--teal-soft); color:var(--teal); border-color:var(--teal); }
+  .carrier-badge.transprensa .dot{ background:var(--teal); }
 
   /* ---- Tabs ---- */
   .tabs{
@@ -221,7 +223,7 @@
     .chart-grid{ grid-template-columns:1fr; }
   }
 
-  /* ---- Selector de transportadora (cuando hay Coordinadora + Envía) ---- */
+  /* ---- Selector de transportadora (cuando hay más de una cargada) ---- */
   .carrier-select{ display:flex; justify-content:center; flex-wrap:wrap; gap:10px; margin:0 auto 20px; }
   .carrier-opt{
     display:flex; align-items:center; gap:10px; padding:12px 20px; border-radius:6px; border:2px solid;
@@ -240,8 +242,12 @@
   .carrier-opt.envia .dot{ background:var(--red); }
   .carrier-opt.envia.active{ background:var(--red); color:#fff; }
   .carrier-opt.envia.active .dot{ background:#fff; }
+  .carrier-opt.transprensa{ color:var(--teal); border-color:var(--teal); }
+  .carrier-opt.transprensa .dot{ background:var(--teal); }
+  .carrier-opt.transprensa.active{ background:var(--teal); color:#fff; }
+  .carrier-opt.transprensa.active .dot{ background:#fff; }
 
-  /* etiqueta pequeña de transportadora dentro de la tabla (solo cuando hay dos transportadoras cargadas) */
+  /* etiqueta pequeña de transportadora dentro de la tabla (solo cuando hay más de una transportadora cargada) */
   .ctag{ display:inline-block; margin-left:6px; padding:1px 6px; border-radius:3px; font-size:9.5px; font-weight:700; letter-spacing:0.3px; color:#fff; vertical-align:middle; }
   .ctag.coordinadora{ background:#0b4a8f; }
   .ctag.envia{ background:var(--red); }
@@ -301,6 +307,13 @@
   .plan-sub{ display:block; font-size:10.5px; color:var(--steel-dim); margin-top:2px; }
   .num{ font-family:var(--mono); text-align:right; display:block; }
 
+  /* ---- Botón de descarga del manifiesto filtrado ---- */
+  .btn-xlsx{
+    background:var(--ink); color:#fff; border:none; border-radius:4px; padding:9px 16px; font-size:13px; font-weight:700;
+    cursor:pointer; border-bottom:3px solid var(--amber); white-space:nowrap;
+  }
+  .btn-xlsx:hover{ background:#1b2c42; }
+
   footer{ text-align:center; font-family:var(--mono); font-size:10.5px; color:var(--steel-dim); padding:30px 0 10px; }
 
   @media (max-width: 640px){
@@ -352,8 +365,9 @@
       <div class="tabs" id="tabs"></div>
 
       <div class="toolbar">
-        <input type="text" id="search" placeholder="Buscar por código, destinatario, ciudad, factura...">
+        <input type="text" id="search" placeholder="Buscar por código, destinatario, ciudad, factura, observación...">
         <select id="destFilter"><option value="">Todos los destinos</option></select>
+        <select id="plazoFilter"><option value="">Todos los plazos</option></select>
         <label class="novedad-toggle" id="sinFechaWrap">
           <input type="checkbox" id="sinFechaToggle"> Solo sin fecha de entrega (-)
         </label>
@@ -361,6 +375,7 @@
           <input type="checkbox" id="novedadToggle"> Solo con incidencia / novedad
         </label>
         <span class="reset" id="resetBtn">Limpiar filtros</span>
+        <button class="btn-xlsx" id="xlsxBtn" type="button">Descargar Excel (lo filtrado)</button>
       </div>
 
       <div class="table-scroll">
@@ -383,6 +398,7 @@
       <div id="emptyState" class="empty-state" style="display:none;">
         No hay envíos que coincidan con este filtro.
       </div>
+      <div class="table-note">Plazo: días hábiles (sin domingos ni festivos) contados desde el día siguiente a la recogida, frente a los días que promete la transportadora. En los envíos sin entregar se cuenta hasta hoy. Transprensa no informa plazo.</div>
     </div>
 
     <div id="viewAnalytics" style="display:none;">
@@ -515,11 +531,11 @@
 <script>
 let RAW = [];
 let currentEstado = 'ALL';
-let currentCategory = 'ALL'; // ALL | ENTREGADAS | EN_PROCESO | INCIDENCIA
+let currentCategory = 'ALL'; // ALL | ENTREGADAS | EN_PROCESO | SIN_SEGUIMIENTO | INCIDENCIA
 let onlyNovedad = false;
 // --- Archivos cargados (uno por tipo; si subes otro del mismo tipo, lo reemplaza) ---
 const DATA = { coordinadora:null, envia:null, transprensa:null, plan:null }; // cada uno: { rows|ciudades, fileName }
-let carrierFilter = 'ALL';   // ALL | coordinadora | envia (solo aplica cuando hay ambas cargadas)
+let carrierFilter = 'ALL';   // ALL | coordinadora | envia | transprensa (solo aplica cuando hay más de una cargada)
 let currentView = 'manifiesto'; // manifiesto | analytics | planb
 let planStatusFilter = 'ALL';   // ALL | CUMPLE | NO_CUMPLE
 
@@ -538,8 +554,10 @@ function tieneFechaEntregaReal(r){
 function matchesCategory(r, category){
   if(category === 'ALL') return true;
   const s = String(r['Estado']||'').toLowerCase();
+  const sinSeguimiento = r._carrier === 'transprensa'; // Transprensa no informa estado ni entrega
   if(category === 'ENTREGADAS') return tieneFechaEntregaReal(r);
-  if(category === 'EN_PROCESO') return !tieneFechaEntregaReal(r);
+  if(category === 'EN_PROCESO') return !tieneFechaEntregaReal(r) && !sinSeguimiento;
+  if(category === 'SIN_SEGUIMIENTO') return sinSeguimiento;
   if(category === 'INCIDENCIA') return s.includes('incidencia') || s.includes('novedad');
   return true;
 }
@@ -605,6 +623,73 @@ function daysBetween(a, b){
   return n >= 0 ? n : null;
 }
 
+// ---------- Plazo de entrega (días prometidos vs. días transcurridos) ----------
+// Las transportadoras prometen días hábiles: no cuentan domingos ni festivos. Se cuenta desde el día siguiente a la recogida.
+// Si la promesa resultara ser en días calendario, basta con poner PLAZO_DIAS_HABILES = false.
+const PLAZO_DIAS_HABILES = true;
+// Festivos de Colombia 2026 (agregar los del año siguiente cuando haga falta)
+const FESTIVOS_CO = new Set(['2026-01-01','2026-01-12','2026-03-23','2026-04-02','2026-04-03','2026-05-01','2026-05-18','2026-06-08',
+  '2026-06-15','2026-06-29','2026-07-20','2026-08-07','2026-08-17','2026-10-12','2026-11-02','2026-11-16','2026-12-08','2026-12-25']);
+
+function esHabil(d){ return d.getDay() !== 0 && !FESTIVOS_CO.has(dateKey(d)); }
+
+// Días entre la recogida (a) y la fecha b, sin contar el día de recogida
+function contarDias(a, b){
+  if(!a || !b) return null;
+  const d = new Date(a.getFullYear(), a.getMonth(), a.getDate());
+  const fin = new Date(b.getFullYear(), b.getMonth(), b.getDate());
+  if(fin < d) return null;
+  let n = 0, guard = 0;
+  while(d < fin && guard++ < 1000){
+    d.setDate(d.getDate() + 1);
+    if(!PLAZO_DIAS_HABILES || esHabil(d)) n++;
+  }
+  return n;
+}
+
+function numOrNull(v){
+  if(v === null || v === undefined || String(v).trim() === '') return null;
+  const x = Number(v); return isFinite(x) ? x : null;
+}
+
+// Estado del plazo de un envío. Entregados: días que tardó vs. promesa (se usa el dato de la transportadora si lo trae).
+// Sin entregar: días transcurridos hasta hoy vs. promesa.
+function plazoInfo(r){
+  if(r._carrier === 'transprensa') return {k:'NA'};
+  const prom = numOrNull(r['Dias ofrecidos']);
+  const rec = toDateAny(r['Fecha recogida']);
+  if(tieneFechaEntregaReal(r)){
+    let dias = numOrNull(r['Dias transcurridos']);
+    if(dias === null) dias = contarDias(rec, toDateAny(r['Fecha entrega']));
+    if(prom === null || dias === null) return {k:'SIN_PROMESA', dias};
+    return {k: dias <= prom ? 'A_TIEMPO' : 'TARDE', dias, prom};
+  }
+  if(matchesCategory(r, 'INCIDENCIA')) return {k:'CERRADO'};
+  const dias = contarDias(rec, new Date());
+  if(prom === null || dias === null) return {k:'SIN_PROMESA', dias};
+  if(dias > prom) return {k:'VENCIDO', dias, prom};
+  if(dias === prom) return {k:'VENCE_HOY', dias, prom};
+  return {k:'EN_PLAZO', dias, prom};
+}
+
+const PLAZO_OPCIONES = [['A_TIEMPO','Entregado a tiempo'], ['TARDE','Entregado tarde'], ['EN_PLAZO','En tránsito, en plazo'], ['VENCE_HOY','Vence hoy'],
+  ['VENCIDO','Vencido sin entregar'], ['SIN_PROMESA','Sin días de promesa'], ['CERRADO','Cerrado por incidencia'], ['NA','Transprensa (sin plazo)']];
+
+function plazoCell(p){
+  const sub = t => `<span class="plan-sub">${t}</span>`;
+  const dd = n => n === 1 ? '1 día' : n + ' días';
+  switch(p.k){
+    case 'A_TIEMPO':  return '<span class="pill ok">A tiempo</span>' + sub(`${p.dias} de ${dd(p.prom)}`);
+    case 'TARDE':     return `<span class="pill bad">Tarde +${dd(p.dias - p.prom)}</span>` + sub(`${p.dias} de ${dd(p.prom)}`);
+    case 'EN_PLAZO':  return '<span class="pill neutral">En plazo</span>' + sub(`día ${p.dias} de ${p.prom} · ${p.prom - p.dias === 1 ? 'queda 1' : 'quedan ' + (p.prom - p.dias)}`);
+    case 'VENCE_HOY': return '<span class="pill warn">Vence hoy</span>' + sub(`día ${p.dias} de ${p.prom}`);
+    case 'VENCIDO':   return `<span class="pill bad">Vencido +${dd(p.dias - p.prom)}</span>` + sub(`día ${p.dias} de ${p.prom}`);
+    case 'SIN_PROMESA': return '<span class="muted">Sin promesa</span>' + (p.dias !== null && p.dias !== undefined ? sub(dd(p.dias)) : '');
+    case 'CERRADO':   return '<span class="pill neutral">Cerrado</span>';
+    default:          return '<span class="muted" title="Transprensa no informa plazo">—</span>';
+  }
+}
+
 function normalizeEnvia(row, guiaKey){
   const codigo = String(row[guiaKey] || '').replace(/'/g, '').trim();
   const fechaEntrega = row['Fec_Entrega'] || null; // Date o null; en Envía viene limpio (sin texto "-")
@@ -615,7 +700,7 @@ function normalizeEnvia(row, guiaKey){
   // y los días prometidos como Dias_Prometidos o Dias_Cubrimiento. Si el informe no trae Dias_Entrega, se calcula con las fechas.
   const recogida = (row['Fec_Captura'] !== undefined ? row['Fec_Captura'] : row['Fec_Produccion']) || null;
   const prom = row['Dias_Prometidos'] !== undefined ? row['Dias_Prometidos'] : row['Dias_Cubrimiento'];
-  const trans = row['Dias_Entrega'] !== undefined ? row['Dias_Entrega'] : (tieneFecha ? daysBetween(recogida, fechaEntrega) : null);
+  const trans = row['Dias_Entrega'] !== undefined ? row['Dias_Entrega'] : (tieneFecha ? contarDias(toDateAny(recogida), toDateAny(fechaEntrega)) : null);
   const origen = row['Ciudad_Origen'] !== undefined ? (row['Ciudad_Origen'] || null) : (row['RegionalO'] || null);
 
   let eficiencia;
@@ -689,7 +774,7 @@ function parseTransprensa(aoa){
   const I = {remesa:ix('remesa'), fecha:ix('fecha'), origen:ix('origen'), cliente:ix('cliente'), destinatario:ix('destinatario'),
             destino:ix('destino'), factura:ix('factura'), peso:ix('peso'), cant:ix('cant.', 'cantidad'), flete:ix('flete'),
             manejo:ix('manejo'), declarado:ix('declarado', 'valordeclarado'), total:ix('vlr. total', 'total'),
-            anulada:ix('anulada'), estado:ix('estado_atencion')};
+            anulada:ix('anulada'), estado:ix('estado_atencion'), observacion:ix('observacion', 'observación')};
   const get = (r, k) => (I[k] >= 0 && r[I[k]] != null) ? r[I[k]] : null;
   const num = v => { const x = Number(v); return isFinite(x) ? x : 0; };
   // el sistema guarda la remesa como número y pierde el cero inicial (102042006657 en vez de 0102042006657, como en el portal)
@@ -707,7 +792,8 @@ function parseTransprensa(aoa){
       remesa: fmtRemesa(remS), fecha: get(r, 'fecha'), origen: get(r, 'origen'), cliente: get(r, 'cliente'),
       destinatario: get(r, 'destinatario'), destino: String(destino).trim(), factura: get(r, 'factura'),
       peso: num(get(r, 'peso')), cant: num(get(r, 'cant')), flete: num(get(r, 'flete')),
-      manejo: num(get(r, 'manejo')), declarado: num(get(r, 'declarado')), total: num(get(r, 'total'))
+      manejo: num(get(r, 'manejo')), declarado: num(get(r, 'declarado')), total: num(get(r, 'total')),
+      observacion: get(r, 'observacion')
     });
   }
   if(!rows.length) throw new Error('El informe de Transprensa no tiene remesas.');
@@ -838,20 +924,50 @@ async function handleFiles(files){
     uploadError.style.display = 'block';
   }
   if(loadedTypes.length){
-    if(loadedTypes.includes('coordinadora') || loadedTypes.includes('envia')) currentView = 'manifiesto';
+    if(loadedTypes.some(t => t === 'coordinadora' || t === 'envia' || t === 'transprensa')) currentView = 'manifiesto';
     refreshApp();
   }
 }
 
 // ---------- Estado general de la app ----------
 
-function isMulti(){ return !!(DATA.coordinadora && DATA.envia); }
+const MANIFEST_CARRIERS = ['coordinadora', 'envia', 'transprensa'];
+const CARRIER_LABEL = {coordinadora:'Coordinadora', envia:'Envía', transprensa:'Transprensa'};
+function manifestCarriers(){ return MANIFEST_CARRIERS.filter(k => DATA[k]); }
+function isMulti(){ return manifestCarriers().length > 1; }
+
+// Transprensa no trae estado, fecha de entrega ni novedades: se lleva al esquema del manifiesto marcada como "Sin seguimiento"
+function transprensaToManifest(t){
+  return {
+    'Codigo remision': t.remesa,
+    'Estado': 'Sin seguimiento (Transprensa)',
+    'Ciudad origen': t.origen || null,
+    'Destino': t.destino,
+    'Nombre destinatario': t.destinatario ? String(t.destinatario).replace(/\s+/g, ' ').trim() : null,
+    'Fecha recogida': t.fecha,
+    'Fecha entrega': null,
+    'Dias transcurridos': null,
+    'Dias ofrecidos': null,
+    'Eficiencia': null,
+    'Unidades': t.cant,
+    'Peso': t.peso,
+    'Flete Total': t.total,
+    'Novedad': null,
+    'Observacion': t.observacion || null,
+    'Factura': t.factura || null,
+    'Cliente': t.cliente || null,
+    _carrier: 'transprensa'
+  };
+}
 
 function composeRaw(){
   const f = isMulti() ? carrierFilter : 'ALL';
   const rows = [];
-  if(DATA.coordinadora && (f === 'ALL' || f === 'coordinadora')) rows.push(...DATA.coordinadora.rows);
-  if(DATA.envia && (f === 'ALL' || f === 'envia')) rows.push(...DATA.envia.rows);
+  manifestCarriers().forEach(k => {
+    if(f !== 'ALL' && f !== k) return;
+    if(k === 'transprensa') rows.push(...DATA.transprensa.rows.map(transprensaToManifest));
+    else rows.push(...DATA[k].rows);
+  });
   return rows;
 }
 
@@ -862,6 +978,7 @@ function resetManifestFilters(){
   document.getElementById('sinFechaWrap').classList.remove('active');
   document.getElementById('novedadToggleWrap').classList.remove('active');
   document.getElementById('search').value = '';
+  document.getElementById('plazoFilter').value = '';
 }
 
 function renderLoadedFiles(){
@@ -881,21 +998,20 @@ function renderLoadedFiles(){
 
 function renderCarrierBar(){
   const bar = document.getElementById('carrierBar');
-  const hasC = !!DATA.coordinadora, hasE = !!DATA.envia;
-  if(hasC && hasE){
+  const ks = manifestCarriers();
+  if(ks.length > 1){
     const opt = (key, cls, label) => `<div class="carrier-opt ${cls} ${carrierFilter === key ? 'active' : ''}" data-carrier="${key}"><span class="dot"></span>${label}</div>`;
-    bar.innerHTML = `<div class="carrier-select">${opt('ALL', 'all', 'Coordinadora + Envía')}${opt('coordinadora', 'coordinadora', 'Solo Coordinadora')}${opt('envia', 'envia', 'Solo Envía')}</div>`;
+    bar.innerHTML = `<div class="carrier-select">${opt('ALL', 'all', ks.map(k => CARRIER_LABEL[k]).join(' + '))}${ks.map(k => opt(k, k, 'Solo ' + CARRIER_LABEL[k])).join('')}</div>`;
     bar.querySelectorAll('.carrier-opt').forEach(el => el.addEventListener('click', () => { carrierFilter = el.getAttribute('data-carrier'); refreshApp(); }));
-  } else if(hasC || hasE){
-    const key = hasC ? 'coordinadora' : 'envia';
-    bar.innerHTML = `<div class="carrier-badge ${key}"><span class="dot"></span><span>${hasC ? 'Datos de Coordinadora' : 'Datos de Envía'}</span></div>`;
+  } else if(ks.length === 1){
+    bar.innerHTML = `<div class="carrier-badge ${ks[0]}"><span class="dot"></span><span>Datos de ${CARRIER_LABEL[ks[0]]}</span></div>`;
   } else {
     bar.innerHTML = '';
   }
 }
 
 function refreshApp(){
-  if(!isMulti()) carrierFilter = 'ALL';
+  if(!isMulti() || (carrierFilter !== 'ALL' && !DATA[carrierFilter])) carrierFilter = 'ALL';
   renderLoadedFiles();
   renderCarrierBar();
   RAW = composeRaw();
@@ -955,11 +1071,14 @@ function bindOnce(el, evt, fn){
 function buildApp(){
   app.style.display = 'block';
 
+  RAW.forEach(r => { r._plazo = plazoInfo(r); });
+
   // --- summary cards ---
   const total = RAW.length;
   const entregadas = RAW.filter(r => tieneFechaEntregaReal(r)).length;
   const incidencias = RAW.filter(r => matchesCategory(r, 'INCIDENCIA')).length;
-  const enRuta = RAW.filter(r => !tieneFechaEntregaReal(r)).length;
+  const enRuta = RAW.filter(r => matchesCategory(r, 'EN_PROCESO')).length;
+  const sinSeguimiento = RAW.filter(r => matchesCategory(r, 'SIN_SEGUIMIENTO')).length;
 
   const conNovedadTotal = RAW.filter(r => r['Novedad']).length;
 
@@ -968,6 +1087,7 @@ function buildApp(){
     <div class="card ok" data-category="ENTREGADAS"><div class="n">${entregadas}</div><div class="l">Entregadas (con fecha)</div></div>
     <div class="card warn" data-category="EN_PROCESO"><div class="n">${enRuta}</div><div class="l">En proceso (sin fecha)</div></div>
     <div class="card bad" data-category="INCIDENCIA"><div class="n">${incidencias}</div><div class="l">Cerrado por incidencia</div></div>
+    ${sinSeguimiento ? `<div class="card" data-category="SIN_SEGUIMIENTO"><div class="n" style="color:var(--teal)">${sinSeguimiento}</div><div class="l">Sin seguimiento (Transprensa)</div></div>` : ''}
   `;
   document.querySelectorAll('.card').forEach(el => {
     el.addEventListener('click', () => {
@@ -1017,6 +1137,17 @@ function buildApp(){
   bindOnce(document.getElementById('search'), 'input', renderTable);
   bindOnce(destSelect, 'change', renderTable);
 
+  // --- filtro de plazo (solo muestra las opciones que tienen envíos) ---
+  const plazoSel = document.getElementById('plazoFilter');
+  const prevPlazo = plazoSel.value;
+  const pc = {};
+  RAW.forEach(r => { pc[r._plazo.k] = (pc[r._plazo.k] || 0) + 1; });
+  plazoSel.innerHTML = '<option value="">Todos los plazos</option>' +
+    PLAZO_OPCIONES.filter(([k]) => pc[k]).map(([k, l]) => `<option value="${k}">${l} (${pc[k]})</option>`).join('');
+  plazoSel.value = pc[prevPlazo] ? prevPlazo : '';
+  bindOnce(plazoSel, 'change', renderTable);
+  bindOnce(document.getElementById('xlsxBtn'), 'click', downloadManifestXlsx);
+
   const sinFechaWrap = document.getElementById('sinFechaWrap');
   const sinFechaToggle = document.getElementById('sinFechaToggle');
   bindOnce(sinFechaToggle, 'change', (e) => {
@@ -1034,6 +1165,7 @@ function buildApp(){
   bindOnce(document.getElementById('resetBtn'), 'click', () => {
     document.getElementById('search').value = '';
     destSelect.value = '';
+    document.getElementById('plazoFilter').value = '';
     sinFechaToggle.checked = false;
     sinFechaWrap.classList.remove('active');
     document.getElementById('novedadToggle').checked = false;
@@ -1080,7 +1212,111 @@ function categoryLabel(){
   if(currentCategory === 'ENTREGADAS') return '(Entregadas)';
   if(currentCategory === 'EN_PROCESO') return '(En proceso)';
   if(currentCategory === 'INCIDENCIA') return '(Incidencias)';
+  if(currentCategory === 'SIN_SEGUIMIENTO') return '(Sin seguimiento)';
   return '';
+}
+
+// ---------- Descarga en Excel de lo que muestra la tabla del manifiesto (con los filtros aplicados) ----------
+let MANIFEST_FILTERED = []; // filas que muestra la tabla ahora mismo (lo llena renderTable)
+
+// Filtros activos del manifiesto, para dejarlos anotados en el archivo
+function filtrosActivos(){
+  const selText = id => { const s = document.getElementById(id); return s.value ? s.options[s.selectedIndex].text.replace(/\s*\(\d+\)$/, '') : ''; };
+  const f = [];
+  f.push(['Transportadora', isMulti() && carrierFilter !== 'ALL' ? CARRIER_LABEL[carrierFilter] : manifestCarriers().map(k => CARRIER_LABEL[k]).join(' + ')]);
+  if(currentCategory !== 'ALL') f.push(['Grupo', categoryLabel().replace(/[()]/g, '')]);
+  if(currentEstado !== 'ALL') f.push(['Estado', currentEstado]);
+  if(selText('destFilter')) f.push(['Destino', selText('destFilter')]);
+  if(selText('plazoFilter')) f.push(['Plazo', selText('plazoFilter')]);
+  const q = document.getElementById('search').value.trim();
+  if(q) f.push(['Búsqueda', q]);
+  if(document.getElementById('sinFechaToggle').checked) f.push(['Solo', 'sin fecha de entrega']);
+  if(onlyNovedad) f.push(['Solo', 'con incidencia / novedad']);
+  return f;
+}
+
+function downloadManifestXlsx(){
+  const rows = MANIFEST_FILTERED;
+  if(!rows.length){ alert('No hay envíos con estos filtros para descargar.'); return; }
+  // fecha como número de Excel (días desde 1899-12-30), sin depender de la zona horaria
+  const serial = v => { const k = dateKey(toDateAny(v)); if(!k) return null; const [y, m, d] = k.split('-').map(Number); return Math.round(Date.UTC(y, m - 1, d) / 86400000) + 25569; };
+  // Estado del archivo según el plazo: A tiempo / Pendiente / Atrasado, y cuántos días de atraso
+  const estadoPlazo = p => {
+    switch(p.k){
+      case 'A_TIEMPO':  return ['A tiempo', 0];
+      case 'EN_PLAZO':
+      case 'VENCE_HOY': return ['Pendiente', 0];
+      case 'TARDE':
+      case 'VENCIDO':   return ['Atrasado', p.dias - p.prom];
+      case 'CERRADO':   return ['Cerrado por incidencia', ''];
+      case 'NA':        return ['Sin seguimiento', ''];
+      default:          return ['Sin promesa', ''];
+    }
+  };
+  const header = ['Remesa', 'Transportadora', 'Ciudad origen / recogida', 'Ciudad destino', 'Fecha recogida', 'Días ofrecidos', 'Estado', 'Días de atraso', 'Novedad'];
+  const aoa = [header];
+  rows.forEach(r => {
+    const [estado, atraso] = estadoPlazo(r._plazo || plazoInfo(r));
+    aoa.push([
+      String(r['Codigo remision'] == null ? '' : r['Codigo remision']).trim(),
+      CARRIER_LABEL[r._carrier] || '',
+      r['Ciudad origen'] ? String(r['Ciudad origen']).trim() : '',
+      r['Destino'] ? String(r['Destino']).trim() : '',
+      serial(r['Fecha recogida']) ?? '',
+      numOrNull(r['Dias ofrecidos']) ?? '',
+      estado,
+      atraso,
+      r['Novedad'] ? String(r['Novedad']).replace(/\s+/g, ' ').trim() : ''
+    ]);
+  });
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  for(let i = 1; i < aoa.length; i++){
+    const cell = ws[XLSX.utils.encode_cell({r:i, c:4})];
+    if(cell && cell.t === 'n') cell.z = 'dd/mm/yyyy';
+  }
+  ws['!cols'] = [{wch:18}, {wch:15}, {wch:24}, {wch:24}, {wch:14}, {wch:14}, {wch:22}, {wch:14}, {wch:50}];
+  ws['!autofilter'] = {ref: XLSX.utils.encode_range({s:{r:0, c:0}, e:{r:aoa.length - 1, c:header.length - 1}})};
+
+  const ahora = new Date(), p2 = x => String(x).padStart(2, '0');
+  const info = [
+    ['Manifiesto de envíos - Panorama S.A.S.'],
+    ['Descargado', p2(ahora.getDate()) + '/' + p2(ahora.getMonth() + 1) + '/' + ahora.getFullYear() + ' ' + p2(ahora.getHours()) + ':' + p2(ahora.getMinutes())],
+    ['Envíos', rows.length],
+    [],
+    ['Filtro', 'Valor'],
+    ...filtrosActivos(),
+    [],
+    ['Estado', 'A tiempo: entregado dentro de los días prometidos. Pendiente: sin entregar y todavía dentro del plazo. Atrasado: entregado tarde o sin entregar con el plazo vencido.'],
+    ['Días de atraso', 'Días hábiles (sin domingos ni festivos) por encima de los días que promete la transportadora. Sin entregar: se cuenta hasta el día de la descarga.']
+  ];
+  const wsInfo = XLSX.utils.aoa_to_sheet(info);
+  wsInfo['!cols'] = [{wch:16}, {wch:60}];
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Envíos');
+  XLSX.utils.book_append_sheet(wb, wsInfo, 'Filtros');
+  const stamp = ahora.getFullYear() + '-' + p2(ahora.getMonth() + 1) + '-' + p2(ahora.getDate());
+  guardarArchivo('Manifiesto_filtrado_' + stamp + '.xlsx', XLSX.write(wb, {bookType:'xlsx', type:'array'}));
+}
+
+// Guarda un archivo generado (xlsx o pdf). Dentro de la vista publicada de Claude usa su función de descargas;
+// en el navegador normal (abriendo el HTML) descarga directo.
+let _downloadsCap;
+async function guardarArchivo(filename, data){
+  if(window.claude && typeof window.claude.use === 'function'){
+    if(_downloadsCap === undefined){ try{ _downloadsCap = await window.claude.use('downloads'); }catch(e){ _downloadsCap = null; } }
+    if(_downloadsCap){
+      try{ await _downloadsCap.save({filename, data}); }
+      catch(e){ if(!e || e.code !== 'declined') alert('No se pudo descargar el archivo (' + ((e && e.code) || 'error') + ').'); }
+      return;
+    }
+  }
+  const type = filename.endsWith('.pdf') ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([data], {type}));
+  a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
 }
 
 function showView(name){
@@ -1109,7 +1345,9 @@ function buildAnalytics(){
   const aTiempo = RAW.filter(r => String(r['Eficiencia']||'').toLowerCase().includes('a tiempo')).length;
   const conEficiencia = RAW.filter(r => r['Eficiencia']).length;
   const pctATiempo = conEficiencia ? ((aTiempo/conEficiencia)*100).toFixed(1) : '0';
-  const diasArr = RAW.map(r => Number(r['Dias transcurridos'])).filter(v => !isNaN(v));
+  const diasArr = RAW.map(r => r['Dias transcurridos'])
+    .filter(v => v !== null && v !== undefined && v !== '' && isFinite(Number(v)))
+    .map(Number);
   const promedioDias = diasArr.length ? (diasArr.reduce((a,b)=>a+b,0)/diasArr.length).toFixed(1) : '—';
   const conNovedad = RAW.filter(r => r['Novedad']).length;
 
@@ -1214,19 +1452,22 @@ function escapeAttr(s){ return escapeHtml(s); }
 
 function carrierTag(r){
   if(!isMulti() || !r._carrier) return '';
-  return r._carrier === 'envia' ? '<span class="ctag envia">ENVÍA</span>' : '<span class="ctag coordinadora">COORD.</span>';
+  const t = {coordinadora:'COORD.', envia:'ENVÍA', transprensa:'TRANSP.'}[r._carrier];
+  return t ? `<span class="ctag ${r._carrier}">${t}</span>` : '';
 }
 
 function renderTable(){
   const search = document.getElementById('search').value.toLowerCase().trim();
   const dest = document.getElementById('destFilter').value;
   const sinFecha = document.getElementById('sinFechaToggle').checked;
+  const plazoF = document.getElementById('plazoFilter').value;
 
   let rows = RAW.filter(r => {
     if(!matchesCategory(r, currentCategory)) return false;
     if(currentEstado !== 'ALL' && String(r['Estado']||'Sin estado').trim() !== currentEstado) return false;
     if(onlyNovedad && !r['Novedad']) return false;
     if(dest && normCity(r['Destino']) !== dest) return false;
+    if(plazoF && (r._plazo || plazoInfo(r)).k !== plazoF) return false;
     if(sinFecha){
       const v = r['Fecha entrega'];
       const esVacio = !v || String(v).trim() === '-';
@@ -1235,12 +1476,13 @@ function renderTable(){
     if(search){
       const hay = [
         r['Codigo remision'], r['Nombre destinatario'], r['Destino'], r['Ciudad origen'],
-        r['Factura'], r['Documento'], r['Cliente']
+        r['Factura'], r['Documento'], r['Cliente'], r['Observacion']
       ].map(v => String(v||'').toLowerCase()).join(' ');
       if(!hay.includes(search)) return false;
     }
     return true;
   });
+  MANIFEST_FILTERED = rows;
 
   const tbody = document.getElementById('tableBody');
   const emptyState = document.getElementById('emptyState');
@@ -1255,13 +1497,7 @@ function renderTable(){
   document.getElementById('dataTable').style.display = 'table';
 
   tbody.innerHTML = rows.map(r => {
-    const dias = r['Dias transcurridos'];
-    const ofrecidos = r['Dias ofrecidos'];
-    let plazoHtml = '<span class="muted">—</span>';
-    if(dias!==null && dias!==undefined && ofrecidos!==null && ofrecidos!==undefined){
-      const over = Number(dias) > Number(ofrecidos);
-      plazoHtml = `<span class="pill ${over?'bad':'ok'}">${dias} / ${ofrecidos} d</span>`;
-    }
+    const plazoHtml = plazoCell(r._plazo || plazoInfo(r));
     const novedad = r['Novedad'] ? `<div class="novedad">${escapeHtml(r['Novedad'])}</div>` : '<span class="muted">—</span>';
 
     return `<tr>
@@ -1711,7 +1947,7 @@ function downloadPlanBReport(){
   XLSX.utils.book_append_sheet(wb, ws, 'Incumplimientos');
   const hoy = new Date();
   const stamp = hoy.getFullYear() + '-' + String(hoy.getMonth() + 1).padStart(2, '0') + '-' + String(hoy.getDate()).padStart(2, '0');
-  XLSX.writeFile(wb, 'Informe_incumplimiento_Plan_B_' + stamp + '.xlsx');
+  guardarArchivo('Informe_incumplimiento_Plan_B_' + stamp + '.xlsx', XLSX.write(wb, {bookType:'xlsx', type:'array'}));
 }
 
 // ---------- Informe PDF de cumplimiento del Plan B ----------
@@ -1907,7 +2143,7 @@ function downloadPlanBPdf(){
     doc.text('Página ' + i + ' de ' + n, W - M, 290, {align:'right'});
   }
 
-  doc.save('Informe_Plan_B_' + hoy.getFullYear() + '-' + p2(hoy.getMonth() + 1) + '-' + p2(hoy.getDate()) + '.pdf');
+  guardarArchivo('Informe_Plan_B_' + hoy.getFullYear() + '-' + p2(hoy.getMonth() + 1) + '-' + p2(hoy.getDate()) + '.pdf', doc.output('arraybuffer'));
 }
 </script>
 
