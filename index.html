@@ -664,7 +664,7 @@ function plazoInfo(r){
     if(prom === null || dias === null) return {k:'SIN_PROMESA', dias};
     return {k: dias <= prom ? 'A_TIEMPO' : 'TARDE', dias, prom};
   }
-  if(matchesCategory(r, 'INCIDENCIA')) return {k:'CERRADO'};
+  // Sin entregar (con o sin novedad): se compara con la promesa; la incidencia queda en la columna Novedad
   const dias = contarDias(rec, new Date());
   if(prom === null || dias === null) return {k:'SIN_PROMESA', dias};
   if(dias > prom) return {k:'VENCIDO', dias, prom};
@@ -673,7 +673,7 @@ function plazoInfo(r){
 }
 
 const PLAZO_OPCIONES = [['A_TIEMPO','Entregado a tiempo'], ['TARDE','Entregado tarde'], ['EN_PLAZO','En tránsito, en plazo'], ['VENCE_HOY','Vence hoy'],
-  ['VENCIDO','Vencido sin entregar'], ['SIN_PROMESA','Sin días de promesa'], ['CERRADO','Cerrado por incidencia'], ['NA','Transprensa (sin plazo)']];
+  ['VENCIDO','Vencido sin entregar'], ['SIN_PROMESA','Sin días de promesa'], ['NA','Transprensa (sin plazo)']];
 
 function plazoCell(p){
   const sub = t => `<span class="plan-sub">${t}</span>`;
@@ -685,7 +685,6 @@ function plazoCell(p){
     case 'VENCE_HOY': return '<span class="pill warn">Vence hoy</span>' + sub(`día ${p.dias} de ${p.prom}`);
     case 'VENCIDO':   return `<span class="pill bad">Vencido +${dd(p.dias - p.prom)}</span>` + sub(`día ${p.dias} de ${p.prom}`);
     case 'SIN_PROMESA': return '<span class="muted">Sin promesa</span>' + (p.dias !== null && p.dias !== undefined ? sub(dd(p.dias)) : '');
-    case 'CERRADO':   return '<span class="pill neutral">Cerrado</span>';
     default:          return '<span class="muted" title="Transprensa no informa plazo">—</span>';
   }
 }
@@ -1248,7 +1247,6 @@ function downloadManifestXlsx(){
       case 'VENCE_HOY': return ['Pendiente', 0];
       case 'TARDE':
       case 'VENCIDO':   return ['Atrasado', p.dias - p.prom];
-      case 'CERRADO':   return ['Cerrado por incidencia', ''];
       case 'NA':        return ['Sin seguimiento', ''];
       default:          return ['Sin promesa', ''];
     }
