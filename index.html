@@ -338,11 +338,11 @@
 
   <div class="upload-zone" id="uploadZone">
     <h2>Arrastra tus archivos Excel aquí</h2>
-    <p>Puedes subir Coordinadora, Envía y Transprensa a la vez (.xlsx o .xls)</p>
+    <p>Puedes subir Coordinadora, Envía y Transprensa a la vez (.xlsx, .xls o .csv)</p>
     <span class="upload-btn">Seleccionar archivos</span>
     <div class="upload-hint">Se procesa localmente en tu navegador — no se envía a ningún servidor</div>
     <div class="upload-error" id="uploadError"></div>
-    <input type="file" id="fileInput" accept=".xlsx,.xls" multiple>
+    <input type="file" id="fileInput" accept=".xlsx,.xls,.csv,.txt" multiple>
   </div>
 
   <div class="loaded-files" id="loadedFiles"></div>
@@ -398,7 +398,7 @@
       <div id="emptyState" class="empty-state" style="display:none;">
         No hay envíos que coincidan con este filtro.
       </div>
-      <div class="table-note">Plazo: días hábiles (sin domingos ni festivos) contados desde el día siguiente a la recogida, frente a los días que promete la transportadora. En los envíos sin entregar se cuenta hasta hoy. Transprensa no informa plazo.</div>
+      <div class="table-note">Plazo: días hábiles (sin domingos ni festivos) contados desde el día siguiente a la recogida, frente a los días que promete la transportadora. En los envíos sin entregar se cuenta hasta hoy. Transprensa: el informe de remesas no trae plazo; la estructura general (CSV) sí.</div>
     </div>
 
     <div id="viewAnalytics" style="display:none;">
@@ -554,7 +554,7 @@ function tieneFechaEntregaReal(r){
 function matchesCategory(r, category){
   if(category === 'ALL') return true;
   const s = String(r['Estado']||'').toLowerCase();
-  const sinSeguimiento = r._carrier === 'transprensa'; // Transprensa no informa estado ni entrega
+  const sinSeguimiento = !!r._sinSeguimiento; // informe de remesas de Transprensa: no trae estado ni entrega
   if(category === 'ENTREGADAS') return tieneFechaEntregaReal(r);
   if(category === 'EN_PROCESO') return !tieneFechaEntregaReal(r) && !sinSeguimiento;
   if(category === 'SIN_SEGUIMIENTO') return sinSeguimiento;
@@ -613,6 +613,9 @@ function toDateAny(v){
   if(!v) return null;
   const p = String(v).trim().split('/');
   if(p.length === 3){ const d = new Date(String(p[2]).slice(0, 4), p[1] - 1, p[0]); return isNaN(d) ? null : d; }
+  // aaaa-mm-dd: se arma en hora local (new Date('2026-11-03') la toma en UTC y en Colombia queda el día anterior)
+  const iso = String(v).trim().match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if(iso) return new Date(+iso[1], iso[2] - 1, +iso[3]);
   const d = new Date(v); return isNaN(d) ? null : d;
 }
 
@@ -655,7 +658,7 @@ function numOrNull(v){
 // Estado del plazo de un envío. Entregados: días que tardó vs. promesa (se usa el dato de la transportadora si lo trae).
 // Sin entregar: días transcurridos hasta hoy vs. promesa.
 function plazoInfo(r){
-  if(r._carrier === 'transprensa') return {k:'NA'};
+  if(r._sinSeguimiento) return {k:'NA'};
   const prom = numOrNull(r['Dias ofrecidos']);
   const rec = toDateAny(r['Fecha recogida']);
   if(tieneFechaEntregaReal(r)){
@@ -773,7 +776,9 @@ function parseTransprensa(aoa){
   const I = {remesa:ix('remesa'), fecha:ix('fecha'), origen:ix('origen'), cliente:ix('cliente'), destinatario:ix('destinatario'),
             destino:ix('destino'), factura:ix('factura'), peso:ix('peso'), cant:ix('cant.', 'cantidad'), flete:ix('flete'),
             manejo:ix('manejo'), declarado:ix('declarado', 'valordeclarado'), total:ix('vlr. total', 'total'),
-            anulada:ix('anulada'), estado:ix('estado_atencion'), observacion:ix('observacion', 'observación')};
+            anulada:ix('anulada'), estado:ix('estado_atencion', 'estadoremesa'), observacion:ix('observacion', 'observación', 'observacionestado'),
+            // estructura general (CSV): seguimiento de cada remesa
+            fechacum:ix('fechacum'), diastransito:ix('diastransito'), tiempo:ix('tiempo_entrega'), compromiso:ix('fecha_compromiso'), cumplida:ix('cumplida')};
   const get = (r, k) => (I[k] >= 0 && r[I[k]] != null) ? r[I[k]] : null;
   const num = v => { const x = Number(v); return isFinite(x) ? x : 0; };
   // el sistema guarda la remesa como número y pierde el cero inicial (102042006657 en vez de 0102042006657, como en el portal)
@@ -787,8 +792,15 @@ function parseTransprensa(aoa){
     if(!/^\d{6,}$/.test(remS)) continue;          // salta totales, pies de página y encabezados repetidos
     const destino = get(r, 'destino'); if(!destino) continue;
     if(norm(get(r, 'anulada')) === 'si' || norm(get(r, 'estado')) === 'anulado'){ anuladas++; continue; }  // remesas anuladas no cuentan
+    const estado = get(r, 'estado') ? String(get(r, 'estado')).trim() : null;
+    const fechaEntrega = toDateAny(get(r, 'fechacum'));   // fecha de cumplimiento = fecha de entrega
+    const numN = v => numOrNull(v);
     rows.push({
-      remesa: fmtRemesa(remS), fecha: get(r, 'fecha'), origen: get(r, 'origen'), cliente: get(r, 'cliente'),
+      estado, fechaEntrega, cumplida: norm(get(r, 'cumplida')) === 'si',
+      diasTransito: fechaEntrega ? numN(get(r, 'diastransito')) : null,   // días hábiles que tardó (lo calcula Transprensa)
+      diasPromesa: numN(get(r, 'tiempo')),                                 // días de entrega prometidos
+      fechaCompromiso: toDateAny(get(r, 'compromiso')),
+      remesa: fmtRemesa(remS), fecha: toDateAny(get(r, 'fecha')) || get(r, 'fecha'), origen: get(r, 'origen'), cliente: get(r, 'cliente'),
       destinatario: get(r, 'destinatario'), destino: String(destino).trim(), factura: get(r, 'factura'),
       peso: num(get(r, 'peso')), cant: num(get(r, 'cant')), flete: num(get(r, 'flete')),
       manejo: num(get(r, 'manejo')), declarado: num(get(r, 'declarado')), total: num(get(r, 'total')),
@@ -935,27 +947,38 @@ const CARRIER_LABEL = {coordinadora:'Coordinadora', envia:'Envía', transprensa:
 function manifestCarriers(){ return MANIFEST_CARRIERS.filter(k => DATA[k]); }
 function isMulti(){ return manifestCarriers().length > 1; }
 
-// Transprensa no trae estado, fecha de entrega ni novedades: se lleva al esquema del manifiesto marcada como "Sin seguimiento"
+// Transprensa tiene dos informes:
+// - Estructura general (CSV): trae estado, fecha de cumplimiento (fechacum = entrega), días en tránsito y días de promesa (tiempo_entrega).
+// - Informe de remesas (.xls): no trae nada de eso; esas remesas quedan como "Sin seguimiento".
 function transprensaToManifest(t){
+  const seguimiento = !!t.estado;
+  const entregada = !!t.fechaEntrega;
+  const prom = t.diasPromesa ?? null;
+  const dias = entregada ? (t.diasTransito ?? contarDias(toDateAny(t.fecha), t.fechaEntrega)) : null;
+  let eficiencia = null;
+  if(entregada) eficiencia = (prom !== null && dias !== null) ? (dias <= prom ? 'A tiempo' : 'Mayor tiempo no justificado') : 'A tiempo';
+  else if(seguimiento) eficiencia = 'En Proceso Entrega';
+  const conNovedad = seguimiento && /novedad/i.test(t.estado);
   return {
     'Codigo remision': t.remesa,
-    'Estado': 'Sin seguimiento (Transprensa)',
+    'Estado': seguimiento ? t.estado : 'Sin seguimiento (Transprensa)',
     'Ciudad origen': t.origen || null,
     'Destino': t.destino,
     'Nombre destinatario': t.destinatario ? String(t.destinatario).replace(/\s+/g, ' ').trim() : null,
     'Fecha recogida': t.fecha,
-    'Fecha entrega': null,
-    'Dias transcurridos': null,
-    'Dias ofrecidos': null,
-    'Eficiencia': null,
+    'Fecha entrega': t.fechaEntrega || null,
+    'Dias transcurridos': dias,
+    'Dias ofrecidos': prom,
+    'Eficiencia': eficiencia,
     'Unidades': t.cant,
     'Peso': t.peso,
     'Flete Total': t.total,
-    'Novedad': null,
+    'Novedad': conNovedad ? (t.observacion ? 'Con novedad: ' + String(t.observacion).trim() : 'Con novedad') : null,
     'Observacion': t.observacion || null,
     'Factura': t.factura || null,
     'Cliente': t.cliente || null,
-    _carrier: 'transprensa'
+    _carrier: 'transprensa',
+    _sinSeguimiento: !seguimiento
   };
 }
 
